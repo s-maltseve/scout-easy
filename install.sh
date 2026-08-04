@@ -39,14 +39,32 @@ fi
 "$INSTALL_DIR/.venv/bin/pip" install -r "$INSTALL_DIR/requirements.txt"
 
 if [[ ! -f "$CONFIG_DIR/scout-easy.env" ]]; then
-  PASSWORD=$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')
-  ACTION_TOKEN=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')
+  # Every installation receives different credentials. The generator uses the
+  # OS cryptographic random source and guarantees all requested character sets.
+  readarray -t GENERATED < <(python3 - <<'PYGEN'
+import secrets
+import string
+
+rng = secrets.SystemRandom()
+username = "scout-" + "".join(rng.choice(string.ascii_lowercase + string.digits) for _ in range(12))
+classes = [string.ascii_lowercase, string.ascii_uppercase, string.digits, "!@%^*_-+="]
+password_chars = [rng.choice(group) for group in classes]
+password_chars.extend(rng.choice("".join(classes)) for _ in range(28))
+rng.shuffle(password_chars)
+print(username)
+print("".join(password_chars))
+print(secrets.token_urlsafe(48))
+PYGEN
+  )
+  USERNAME=${GENERATED[0]}
+  PASSWORD=${GENERATED[1]}
+  ACTION_TOKEN=${GENERATED[2]}
   cat > "$CONFIG_DIR/scout-easy.env" <<ENV
-SCOUT_USERNAME=admin
-SCOUT_PASSWORD=$PASSWORD
+SCOUT_USERNAME='$USERNAME'
+SCOUT_PASSWORD='$PASSWORD'
 SCOUT_AUTH_ENABLED=true
 SCOUT_ACTIONS_ENABLED=false
-SCOUT_ACTION_TOKEN=$ACTION_TOKEN
+SCOUT_ACTION_TOKEN='$ACTION_TOKEN'
 SCOUT_ALLOWED_IPS=
 SCOUT_BIND_HOST=127.0.0.1
 SCOUT_BIND_PORT=8765
@@ -57,7 +75,7 @@ SCOUT_LOGIN_ATTEMPTS=8
 SCOUT_LOGIN_WINDOW_SECONDS=300
 ENV
   chmod 600 "$CONFIG_DIR/scout-easy.env"
-  echo "Созданы данные входа: admin / $PASSWORD"
+  echo "Созданы уникальные данные входа: $USERNAME / $PASSWORD"
 else
   echo "Существующий конфиг сохранён: $CONFIG_DIR/scout-easy.env"
 fi

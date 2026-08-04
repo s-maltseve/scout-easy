@@ -87,7 +87,7 @@ def dashboard(actor: str = Depends(require_auth)) -> dict[str, Any]:
     fail2ban, error = _safe_section("fail2ban", collect_fail2ban, {"running": False, "jails": [], "error": "Данные недоступны"})
     if error:
         errors.append(error)
-    network, error = _safe_section("network", lambda: collect_connections(settings.max_connections), {"summary": {"total": 0}, "connections": []})
+    network, error = _safe_section("network", lambda: collect_connections(settings.max_connections), {"summary": {"total": 0, "with_traffic": 0}, "connections": [], "process_traffic": []})
     if error:
         errors.append(error)
     processes, error = _safe_section("processes", collect_processes, {"top": [], "suspicious": []})
