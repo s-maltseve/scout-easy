@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Scout-Easy</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Scout-Easy</h1>
+      <p>Лёгкая панель безопасности Linux</p>
+    </div>
+    <div class="status"><span id="status-dot"></span><span id="status-text">Загрузка…</span></div>
+  </header>
+
+  <main>
+    <section id="alerts" class="alerts"></section>
+
+    <section class="cards" id="overview"></section>
+
+    <section class="grid two">
+      <article class="panel">
+        <div class="panel-title"><h2>Система</h2><span id="hostname"></span></div>
+        <div id="system"></div>
+      </article>
+      <article class="panel">
+        <div class="panel-title"><h2>Активные SSH-сессии</h2><span id="session-count"></span></div>
+        <div class="table-wrap"><table><thead><tr><th>Пользователь</th><th>IP</th><th>TTY</th><th>Начало</th></tr></thead><tbody id="sessions"></tbody></table></div>
+      </article>
+    </section>
+
+    <section class="grid two">
+      <article class="panel">
+        <div class="panel-title"><h2>События SSH</h2><span>последние записи</span></div>
+        <div class="table-wrap"><table><thead><tr><th>Статус</th><th>Пользователь</th><th>IP</th><th>Метод</th></tr></thead><tbody id="events"></tbody></table></div>
+      </article>
+      <article class="panel">
+        <div class="panel-title"><h2>Fail2ban</h2><span id="f2b-status"></span></div>
+        <div id="fail2ban"></div>
+      </article>
+    </section>
+
+    <section class="grid two">
+      <article class="panel">
+        <div class="panel-title"><h2>Сетевые соединения</h2><span id="network-count"></span></div>
+        <div class="table-wrap"><table><thead><tr><th>Процесс</th><th>Локально</th><th>Удалённо</th><th>Статус</th></tr></thead><tbody id="connections"></tbody></table></div>
+      </article>
+      <article class="panel">
+        <div class="panel-title"><h2>Процессы</h2><span>по CPU/RAM</span></div>
+        <div class="table-wrap"><table><thead><tr><th>PID</th><th>Процесс</th><th>CPU</th><th>RAM</th></tr></thead><tbody id="processes"></tbody></table></div>
+      </article>
+    </section>
+  </main>
+
+  <footer>Scout-Easy <span id="version"></span> · режим только чтения</footer>
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+[Unit]
+Description=Scout-Easy Linux Security Dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/scout-easy
+EnvironmentFile=/etc/scout-easy/scout-easy.env
+ExecStart=/opt/scout-easy/.venv/bin/uvicorn app.main:app --host ${SCOUT_BIND_HOST} --port ${SCOUT_BIND_PORT} --proxy-headers
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectSystem=strict
+ReadWritePaths=/run /var/log
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
