@@ -125,12 +125,12 @@ def upsert_alert(fingerprint: str, severity: str, title: str, description: str, 
           VALUES(?,?,?,?,?,'new',?,?,1)
           ON CONFLICT(fingerprint) DO UPDATE SET severity=excluded.severity,title=excluded.title,description=excluded.description,
           evidence=excluded.evidence,last_seen=excluded.last_seen,occurrences=alerts.occurrences+1,
-          status=CASE WHEN alerts.status='resolved' THEN 'new' ELSE alerts.status END,resolved_at=NULL,resolved_by=NULL,resolution_note=NULL''',
+          status=alerts.status,resolved_at=alerts.resolved_at,resolved_by=alerts.resolved_by,resolution_note=alerts.resolution_note''',
           (fingerprint,severity,title,description,json.dumps(evidence or {},ensure_ascii=False),now,now))
         bucket = now - now % 86400
         conn.execute('INSERT INTO activity(bucket,alerts) VALUES(?,1) ON CONFLICT(bucket) DO UPDATE SET alerts=alerts+1', (bucket,))
         conn.commit()
-        return previous is None or previous['status']=='resolved' or now-int(previous['last_seen'])>300
+        return previous is None or (previous['status']!='resolved' and now-int(previous['last_seen'])>300)
 
 def check_file(path: str, sha256: str | None, mtime: float | None) -> tuple[bool,str|None]:
     now=int(time.time())
