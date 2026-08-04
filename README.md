@@ -1,179 +1,145 @@
 # SCOUT-EASY
 
-Lightweight, read-only Linux security dashboard for a single Debian/Ubuntu server.
+Лёгкая self-hosted панель безопасности Linux: SSH-сессии и события, Fail2ban, процессы, сетевые соединения и трафик.
 
-## What it shows
+![SCOUT-EASY](app/static/scout-easy-logo.png)
 
-- active login/SSH sessions;
-- successful and failed SSH authentication events from systemd journal;
-- Fail2ban status, jails and banned addresses;
-- active TCP/UDP connections, PIDs and process names;
-- CPU, RAM, disk, load and uptime;
-- top processes and basic warnings.
+## Возможности
 
-SCOUT-EASY работает в режиме только чтения по умолчанию. Управляющие действия версии 0.2.0 включаются отдельно в конфигурации.
+- активные SSH-сессии и отключение сессий;
+- успешные и неудачные SSH-входы;
+- просмотр jail Fail2ban, ручной бан и разбан IP;
+- сетевые соединения с текущей и накопленной TCP-статистикой;
+- трафик по процессам;
+- CPU, RAM, диск и uptime;
+- фильтры и сортировка;
+- случайные логин, пароль и admin token на каждой новой установке;
+- интерактивная настройка Nginx и HTTPS для домена или публичного IP;
+- консольный менеджер `sudo scout-easy`.
 
-## Supported systems
+## Поддерживаемые системы
 
-- Debian 12+
-- Ubuntu 22.04+
-- Python 3.11+
-- systemd
+Debian и Ubuntu с systemd. Установка выполняется от root.
 
-Other Linux distributions may work when installed manually.
-
-## Quick installation from GitHub
+## Установка
 
 ```bash
-git clone https://github.com/YOUR-USERNAME/scout-easy.git
+git clone https://github.com/s-maltseve/scout-easy.git
 cd scout-easy
 sudo bash install.sh
 ```
 
-The installer generates a random password and binds the service to `127.0.0.1:8765`.
+Установщик:
 
-Open it safely through an SSH tunnel:
+1. устанавливает Python, Nginx и необходимые пакеты;
+2. размещает приложение в `/opt/scout-easy`;
+3. создаёт `/etc/scout-easy/scout-easy.env`;
+4. генерирует уникальные учётные данные;
+5. запускает `scout-easy.service`;
+6. предлагает настроить публичный HTTPS-доступ.
 
-```bash
-ssh -L 8765:127.0.0.1:8765 your-user@your-server
-```
+При настройке HTTPS укажи домен либо публичный IP и email. Для домена DNS-запись уже должна вести на сервер. Порты 80 и 443 должны быть доступны извне.
 
-Then visit:
+## Где посмотреть логин и пароль
 
-```text
-http://127.0.0.1:8765
-```
-
-## Configuration
-
-Configuration is stored at:
-
-```text
-/etc/scout-easy/scout-easy.env
-```
-
-Example:
-
-```env
-SCOUT_USERNAME=admin
-SCOUT_PASSWORD=use-a-long-random-password
-SCOUT_AUTH_ENABLED=true
-SCOUT_BIND_HOST=127.0.0.1
-SCOUT_BIND_PORT=8765
-SCOUT_REFRESH_SECONDS=5
-SCOUT_MAX_CONNECTIONS=250
-SCOUT_MAX_EVENTS=100
-```
-
-After editing:
+Установщик выводит их в конце. Позже используй:
 
 ```bash
-sudo systemctl restart scout-easy
+sudo scout-easy
 ```
 
-## Service management
+Пункт 1 показывает логин, пароль и admin token. Напрямую:
 
 ```bash
-sudo systemctl status scout-easy
-sudo journalctl -u scout-easy -f
-sudo systemctl restart scout-easy
+sudo grep -E 'SCOUT_USERNAME|SCOUT_PASSWORD|SCOUT_ACTION_TOKEN' /etc/scout-easy/scout-easy.env
 ```
 
-## Development
+Файл доступен только root и имеет права `600`.
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e '.[dev]'
-export SCOUT_AUTH_ENABLED=false
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8765
-```
+## Для чего нужен admin token
 
-API documentation:
+Обычный логин открывает панель. Отдельный admin token подтверждает опасные действия:
 
-```text
-http://127.0.0.1:8765/api/docs
-```
+- отключение SSH-сессии;
+- добавление IP в Fail2ban;
+- удаление IP из Fail2ban.
 
-Run tests:
+Токен вводится при первом действии и хранится только в текущей вкладке браузера.
 
-```bash
-pytest
-ruff check .
-```
+## Fail2ban
 
-## Security notes
-
-- Keep the default loopback binding and use an SSH tunnel, VPN, or authenticated reverse proxy.
-- Do not expose port 8765 directly to the public internet.
-- The service currently runs as root because process-to-connection mapping, journal access and Fail2ban inspection often require elevated permissions.
-- The systemd unit applies several sandboxing restrictions and the application exposes no write actions.
-- HTTP Basic credentials are only safe over an encrypted tunnel or HTTPS.
-
-## Roadmap
-
-- configurable alert rules;
-- Telegram notifications;
-- persistent event history;
-- nftables/UFW module with narrowly scoped privileged helper;
-- multi-server hub and agent architecture;
-- GeoIP enrichment;
-- package/release installation without Git.
-
-## License
-
-MIT
-
-## Управляющие действия (v0.2)
-
-По умолчанию SCOUT-EASY работает только на чтение. Чтобы включить завершение SSH-сессий и управление банами Fail2ban:
-
-```bash
-sudo nano /etc/scout-easy/scout-easy.env
-```
-
-Установите:
+В блоке Fail2ban выбери jail, введи IPv4/IPv6 и нажми «Добавить в бан». У каждого заблокированного IP есть кнопка удаления из бана. Управляющие действия включены по умолчанию:
 
 ```env
 SCOUT_ACTIONS_ENABLED=true
 ```
 
-Затем перезапустите службу:
+## Обновление
+
+На сервере:
 
 ```bash
+cd ~/scout-easy
+git pull --ff-only origin main
+sudo bash install.sh --non-interactive
+```
+
+Существующие логин, пароль, token и настройки сохраняются. Установщик останавливает старый процесс, копирует новый код и перезапускает службу.
+
+Либо через менеджер:
+
+```bash
+sudo scout-easy
+```
+
+Выбери пункт «Обновить из GitHub».
+
+## Управление
+
+```bash
+sudo scout-easy
+```
+
+Меню позволяет показать и сбросить учётные данные, обновить приложение, проверить статус, посмотреть логи, проверить сертификаты и удалить SCOUT-EASY.
+
+Полезные команды:
+
+```bash
+sudo systemctl status scout-easy --no-pager
 sudo systemctl restart scout-easy
+sudo journalctl -u scout-easy -n 100 --no-pager
 ```
 
-Действия требуют HTTP Basic-аутентификацию и отдельный `SCOUT_ACTION_TOKEN`, проверяются на сервере и записываются в журнал systemd.
+Проверка API:
 
-## Безопасный публичный доступ
-
-Не публикуйте порт 8765 напрямую через HTTP. Рекомендуемая схема:
-
-```text
-Интернет → HTTPS (Nginx/Caddy) → 127.0.0.1:8765
+```bash
+source /etc/scout-easy/scout-easy.env
+curl -u "$SCOUT_USERNAME:$SCOUT_PASSWORD" http://127.0.0.1:8765/api/health
 ```
 
-Дополнительно можно ограничить доступ IP-адресами:
+## Публичный доступ и безопасность
 
-```env
-SCOUT_ALLOWED_IPS=127.0.0.1/32,192.168.1.0/24
+Приложение остаётся на `127.0.0.1:8765`; наружу публикуется Nginx на 443. Не открывай 8765 в firewall.
+
+```bash
+sudo ufw allow OpenSSH
+sudo ufw allow 'Nginx Full'
+sudo ufw delete allow 8765/tcp 2>/dev/null || true
 ```
 
-Для доступа из любой сети оставьте значение пустым, но обязательно используйте HTTPS, длинный случайный пароль и при возможности VPN/Tailscale/WireGuard.
+Сертификаты для IP у Let’s Encrypt короткоживущие, поэтому автоматическое продление должно постоянно работать. Проверка:
 
+```bash
+sudo systemctl status certbot.timer --no-pager
+sudo certbot renew --dry-run
+```
 
-## Новое в 0.4.0
+## Удаление
 
-- текущая входящая и исходящая скорость по активным TCP-соединениям;
-- накопленный TCP-трафик по соединению;
-- агрегирование трафика по процессам;
-- фильтр, сортировка, скрытие loopback и пассивных сокетов;
-- ручное добавление IP в выбранный Fail2ban jail;
-- удаление IP из бана непосредственно из панели;
-- административные действия требуют `SCOUT_ACTIONS_ENABLED=true` и отдельный `SCOUT_ACTION_TOKEN`.
+```bash
+sudo bash /opt/scout-easy/uninstall.sh
+```
 
-> Счётчики соединений берутся из `ss -tinpH`. Для UDP, LISTEN и TIME_WAIT точные счётчики не отображаются.
+## Лицензия
 
-
-Установщик сохраняет существующий `/etc/scout-easy/scout-easy.env` при обновлении. При первой установке он создаёт уникальный логин вида `scout-xxxxxxxxxxxx`, пароль длиной 32 символа с буквами в обоих регистрах, цифрами и спецсимволами, а также отдельный административный токен. Генерация использует криптографически стойкий системный источник случайности.
+MIT.

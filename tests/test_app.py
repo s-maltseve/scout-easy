@@ -12,7 +12,7 @@ client = TestClient(app)
 def test_health():
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.4.0"}
+    assert response.json() == {"status": "ok", "version": "0.5.0"}
 
 
 def test_dashboard_shape_and_secret_is_not_exposed():

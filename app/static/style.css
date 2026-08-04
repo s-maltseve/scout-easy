@@ -26,3 +26,5 @@ button{background:#243655;color:var(--text);border:1px solid #38517c;border-radi
 .rate{font-variant-numeric:tabular-nums;white-space:nowrap}.rate.down{color:#77d6ff}.rate.up{color:#98f5ba}
 .f2b-manager{display:grid;grid-template-columns:minmax(150px,220px) minmax(220px,1fr) auto auto;gap:10px;padding:16px;border-bottom:1px solid var(--border)}.f2b-manager input,.f2b-manager select{background:#0b1020;border:1px solid var(--border);color:var(--text);border-radius:9px;padding:9px 11px;outline:none}.f2b-manager input:focus,.f2b-manager select:focus{border-color:var(--info)}.read-only-note{padding:14px 16px;color:var(--muted);border-bottom:1px solid var(--border)}.read-only-note code{color:var(--text)}.empty.compact{padding:10px 0}
 @media(max-width:850px){.f2b-manager{grid-template-columns:1fr}.table-wrap{overflow-x:auto}table{min-width:820px}}
+
+.brand{display:flex;align-items:center;gap:14px}.brand-logo{width:58px;height:58px;object-fit:contain;filter:drop-shadow(0 8px 18px rgba(79,209,135,.22))}.brand h1{margin:0}@media(max-width:640px){.brand-logo{width:46px;height:46px}.brand{gap:10px}}
