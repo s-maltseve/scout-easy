@@ -1,59 +1,41 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+[[ $EUID -eq 0 ]] || exec sudo "$0" "$@"
 ENV_FILE=/etc/scout-easy/scout-easy.env
-SERVICE=scout-easy.service
-REPO_DIR=${SCOUT_REPO_DIR:-$HOME/scout-easy}
-need_root(){ [[ $EUID -eq 0 ]] || exec sudo "$0" "$@"; }
-show_env(){ [[ -f "$ENV_FILE" ]] && grep -E '^(SCOUT_USERNAME|SCOUT_PASSWORD|SCOUT_ACTION_TOKEN|SCOUT_BIND_HOST|SCOUT_BIND_PORT|SCOUT_ACTIONS_ENABLED)=' "$ENV_FILE" || echo 'Конфигурация не найдена'; }
-reset_secret(){
- local key=$1 length=40 value
- [[ $key == SCOUT_ACTION_TOKEN ]] && length=64
- value=$(python3 - "$length" <<'PY'
-import secrets,string,sys
-length=int(sys.argv[1]); special='!@#$%^&*_-+=:'
-groups=[string.ascii_lowercase,string.ascii_uppercase,string.digits,special]
-alphabet=''.join(groups)
-chars=[secrets.choice(g) for g in groups]
-chars += [secrets.choice(alphabet) for _ in range(length-len(chars))]
-secrets.SystemRandom().shuffle(chars)
-print(''.join(chars))
-PY
- )
- if grep -q "^${key}=" "$ENV_FILE"; then
-  sed -i "s|^${key}=.*|${key}='${value}'|" "$ENV_FILE"
- else
-  printf "%s='%s'\n" "$key" "$value" >> "$ENV_FILE"
- fi
- chmod 600 "$ENV_FILE"
- systemctl restart "$SERVICE"
- echo "$key=$value"
-}
+PY=/opt/scout-easy/.venv/bin/python3
+get(){ sed -n "s/^$1=//p" "$ENV_FILE" | head -1 | sed "s/^['\"]//;s/['\"]$//"; }
+setv(){ local key=$1 value=$2; sed -i "/^${key}=/d" "$ENV_FILE"; printf "%s='%s'\n" "$key" "$value" >> "$ENV_FILE"; chmod 600 "$ENV_FILE"; }
 while true; do
-cat <<'MENU'
-
-SCOUT-EASY Manager
-1) Показать логин, пароль и admin token
-2) Сбросить пароль
-3) Сбросить admin token
-4) Обновить из GitHub
-5) Перезапустить сервис
-6) Статус сервиса
-7) Последние логи
-8) Проверить/обновить сертификаты
-9) Удалить SCOUT-EASY
-0) Выход
-MENU
-read -rp 'Выбери пункт: ' n
-case "$n" in
-1) need_root "$@"; show_env;;
-2) need_root "$@"; reset_secret SCOUT_PASSWORD;;
-3) need_root "$@"; reset_secret SCOUT_ACTION_TOKEN;;
-4) need_root "$@"; if [[ -d "$REPO_DIR/.git" ]]; then git -C "$REPO_DIR" pull --ff-only && bash "$REPO_DIR/install.sh" --non-interactive; else echo "Репозиторий не найден: $REPO_DIR"; fi;;
-5) need_root "$@"; systemctl restart "$SERVICE";;
-6) systemctl status "$SERVICE" --no-pager;;
-7) journalctl -u "$SERVICE" -n 100 --no-pager;;
-8) need_root "$@"; certbot renew --dry-run || true;;
-9) need_root "$@"; read -rp 'Удалить SCOUT-EASY? [y/N] ' x; [[ $x =~ ^[Yy]$ ]] && bash /opt/scout-easy/uninstall.sh;;
-0) exit 0;; *) echo 'Неизвестный пункт';;
-esac
+ echo; echo 'SCOUT-EASY Manager'; echo '1) Показать логин и QR-код 2FA'; echo '2) Сбросить пароль'; echo '3) Пересоздать 2FA'; echo '4) Перезапустить сервис'; echo '5) Статус'; echo '6) Логи'; echo '0) Выход'; read -rp '> ' choice
+ case $choice in
+ 1) u=$(get SCOUT_USERNAME); s=$(get SCOUT_TOTP_SECRET); uri=$($PY - "$s" "$u" <<'PY'
+import sys
+sys.path.insert(0, '/opt/scout-easy')
+from app.security import provisioning_uri
+print(provisioning_uri(sys.argv[1], sys.argv[2]))
+PY
+); echo "Логин: $u"; qrencode -t ANSIUTF8 "$uri"; echo "Секрет: $s";;
+ 2) read -rsp 'Новый пароль (пусто = сгенерировать): ' p; echo; [[ -n "$p" ]] || p=$($PY - <<'PY'
+import secrets,string
+chars=string.ascii_letters+string.digits+'!@#$%^&*_-+=:'
+print(''.join(secrets.choice(chars) for _ in range(40)))
+PY
+); h=$($PY - "$p" <<'PY'
+import sys
+sys.path.insert(0, '/opt/scout-easy')
+from app.security import hash_password
+print(hash_password(sys.argv[1]))
+PY
+); setv SCOUT_PASSWORD_HASH "$h"; systemctl restart scout-easy; echo "Новый пароль: $p";;
+ 3) s=$($PY - <<'PY'
+import sys
+sys.path.insert(0, '/opt/scout-easy')
+from app.security import generate_totp_secret
+print(generate_totp_secret())
+PY
+); setv SCOUT_TOTP_SECRET "$s"; systemctl restart scout-easy; echo '2FA пересоздана. Выбери пункт 1 и отсканируй QR.';;
+ 4) systemctl restart scout-easy; echo OK;;
+ 5) systemctl status scout-easy --no-pager;;
+ 6) journalctl -u scout-easy -n 100 --no-pager;;
+ 0) exit 0;; esac
 done

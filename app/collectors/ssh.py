@@ -44,6 +44,14 @@ def _journal_lines(limit: int) -> list[str]:
     return []
 
 
+def _timestamp(line: str) -> str:
+    token = line.split(" ", 1)[0]
+    try:
+        return datetime.fromisoformat(token).astimezone().isoformat()
+    except ValueError:
+        return token
+
+
 def collect_auth_events(limit: int = 100) -> list[dict]:
     events: list[dict] = []
     for line in reversed(_journal_lines(max(limit * 4, 200))):
@@ -51,13 +59,14 @@ def collect_auth_events(limit: int = 100) -> list[dict]:
         failed = SSH_FAIL_RE.search(line)
         invalid = INVALID_USER_RE.search(line)
         if accepted:
-            events.append({"type": "success", **accepted.groupdict(), "raw": line})
+            events.append({"type": "success", "timestamp": _timestamp(line), **accepted.groupdict(), "raw": line})
         elif failed:
-            events.append({"type": "failure", **failed.groupdict(), "raw": line})
+            events.append({"type": "failure", "timestamp": _timestamp(line), **failed.groupdict(), "raw": line})
         elif invalid:
             events.append(
                 {
                     "type": "failure",
+                    "timestamp": _timestamp(line),
                     "method": "unknown",
                     "port": "",
                     **invalid.groupdict(),

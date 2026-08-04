@@ -6,6 +6,7 @@ const obj = (value) => value && typeof value === 'object' ? value : {};
 const fmtBytes = (value) => { if(value === null || value === undefined) return '—'; let n=num(value); const u=['Б','КБ','МБ','ГБ','ТБ']; let i=0; while(n>=1024&&i<u.length-1){n/=1024;i++} return `${n.toFixed(i?1:0)} ${u[i]}`; };
 const fmtRate = (value) => value === null || value === undefined ? '—' : `${fmtBytes(value)}/с`;
 const fmtUp = (s) => { s=num(s); const d=Math.floor(s/86400),h=Math.floor((s%86400)/3600),m=Math.floor((s%3600)/60); return `${d}д ${h}ч ${m}м`; };
+const fmtTime = (value) => { if(!value) return '—'; const d=new Date(value); return Number.isNaN(d.getTime())?String(value):d.toLocaleString('ru-RU'); };
 const endpoint = (a) => a && typeof a === 'object' ? `${a.ip ?? '—'}:${a.port ?? '—'}` : '—';
 
 let state = null;
@@ -16,15 +17,6 @@ function toast(message, bad=false){
   const el=$('toast'); if(!el) return;
   el.textContent=message; el.className=`toast show${bad?' bad':''}`;
   setTimeout(()=>el.className='toast',3200);
-}
-
-function actionToken(){
-  let token=sessionStorage.getItem('scoutActionToken') || '';
-  if(!token){
-    token=prompt('Введите SCOUT_ACTION_TOKEN. Токен сохранится только до закрытия вкладки:')?.trim() || '';
-    if(token) sessionStorage.setItem('scoutActionToken', token);
-  }
-  return token;
 }
 
 function searchable(row){ return JSON.stringify(obj(row)).toLowerCase(); }
@@ -38,15 +30,13 @@ function compare(a,b,key,direction){
 async function action(path,payload,confirmText){
   if(!state?.meta?.actions_enabled) return toast('Управляющие действия отключены в конфигурации',true);
   if(!confirm(confirmText)) return;
-  const token=actionToken();
-  if(!token) return toast('Действие отменено: токен не введён',true);
   try{
-    const r=await fetch(path,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','X-SCOUT-ACTION-TOKEN':token},body:JSON.stringify(payload)});
+    const csrf=sessionStorage.getItem('scoutCsrf') || '';
+    const r=await fetch(path,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify(payload)});
     const body=await r.json().catch(()=>({}));
-    if(!r.ok){
-      if(r.status===403) sessionStorage.removeItem('scoutActionToken');
-      throw new Error(body.detail||`HTTP ${r.status}`);
-    }
+    if(r.status===401){ location.href='/login'; return; }
+    if(r.status===401){ location.href='/login'; return; }
+    if(!r.ok) throw new Error(body.detail||`HTTP ${r.status}`);
     toast('Действие выполнено'); await load();
   }catch(e){ toast(e.message,true); }
 }
@@ -101,7 +91,6 @@ function renderFail2ban(fail2ban, meta){
     <select id="f2b-jail" aria-label="Fail2ban jail">${jails.map(j=>`<option value="${esc(j.name)}">${esc(j.name)}</option>`).join('')}</select>
     <input id="f2b-ip" type="text" inputmode="decimal" placeholder="IP-адрес, например 203.0.113.10" required />
     <button type="submit" class="danger">Добавить в бан</button>
-    <button type="button" data-action="clear-action-token" class="ghost">Сбросить токен</button>
   </form>`:`<div class="read-only-note">Для добавления и удаления IP включи <code>SCOUT_ACTIONS_ENABLED=true</code>.</div>`;
   const body=jails.map(j=>{
     const banned=list(j.banned_ips);
@@ -113,6 +102,13 @@ function renderFail2ban(fail2ban, meta){
   $('fail2ban').innerHTML=manager+`<div class="jails">${body}</div>`;
 }
 
+function renderUsers(){
+  const q=$('users-filter')?.value.trim().toLowerCase() || '';
+  const rows=list(state?.users?.users).filter(u=>!q||searchable(u).includes(q));
+  $('users-count').textContent=`${rows.length} пользователей`;
+  $('users').innerHTML=rows.length?rows.map(u=>`<tr><td><b>${esc(u.username)}</b><small class="sub">UID ${esc(u.uid)} · GID ${esc(u.gid)}</small></td><td>${u.is_admin?'<span class="badge bad">администратор</span>':u.is_system?'<span class="badge">системный</span>':'<span class="badge ok">обычный</span>'}</td><td>${list(u.groups).map(g=>`<span class="group-chip">${esc(g)}</span>`).join(' ')}</td><td>${esc(u.shell)}</td><td>${u.login_allowed?'разрешён':'запрещён'}</td><td>${esc(u.home)}</td></tr>`).join(''):`<tr><td colspan="6" class="empty">Пользователи не найдены</td></tr>`;
+}
+
 function render(data){
   state=obj(data);
   const meta=obj(state.meta), system=obj(state.system), memory=obj(system.memory), disk=obj(system.disk);
@@ -121,12 +117,12 @@ function render(data){
 
   $('version').textContent=`v${esc(meta.version || '—')}`;
   $('hostname').textContent=system.hostname || 'данные недоступны';
-  $('mode').textContent=meta.read_only===false?'управление включено':'режим только чтения';
+  $('mode').textContent=meta.actions_enabled?'управление включено · 2FA':'режим только чтения · 2FA';
   const severity=warnings.some(w=>w.level==='critical')?'critical':warnings.some(w=>w.level==='warning')?'warning':'ok';
   $('status-dot').style.background=severity==='critical'?'var(--bad)':severity==='warning'?'var(--warn)':'var(--ok)';
   $('status-text').textContent=meta.partial?'Частичные данные':severity==='critical'?'Требуется проверка':severity==='warning'?'Предупреждение':'Работает';
 
-  const cards=[['SSH сейчас',num(overview.ssh_sessions)],['Ошибки входа',num(overview.auth_failures)],['Успешные входы',num(overview.auth_successes)],['Заблокировано',num(overview.banned_ips)],['Соединения',num(overview.network_connections)]];
+  const cards=[['SSH сейчас',num(overview.ssh_sessions)],['Ошибки входа',num(overview.auth_failures)],['Успешные входы',num(overview.auth_successes)],['Заблокировано',num(overview.banned_ips)],['Соединения',num(overview.network_connections)],['Пользователи',num(overview.linux_users)]];
   $('overview').innerHTML=cards.map(([l,v])=>`<article class="card"><div class="label">${esc(l)}</div><div class="value">${esc(v)}</div></article>`).join('');
   $('alerts').innerHTML=warnings.length?warnings.map(w=>`<div class="alert ${esc(w.level)}"><strong>${esc(w.title)}</strong><span>${esc(w.message)}</span></div>`).join(''):'';
 
@@ -140,19 +136,25 @@ function render(data){
 
   $('session-count').textContent=String(sessions.length);
   $('sessions').innerHTML=sessions.length?sessions.map(s=>`<tr><td>${esc(s.username)}</td><td>${esc(s.source_ip)}</td><td>${esc(s.terminal)}</td><td>${s.started_at?new Date(s.started_at).toLocaleString():'—'}</td><td>${meta.actions_enabled?`<button class="danger" data-action="disconnect" data-tty="${esc(s.terminal)}" data-user="${esc(s.username)}">Отключить</button>`:''}</td></tr>`).join(''):`<tr><td colspan="5" class="empty">Активных сессий нет</td></tr>`;
-  $('events').innerHTML=events.length?events.slice(0,50).map(e=>`<tr><td><span class="badge ${e.type==='success'?'ok':'bad'}">${e.type==='success'?'успешно':'ошибка'}</span></td><td>${esc(e.user)}</td><td>${esc(e.ip)}</td><td>${esc(e.method)}</td><td>${meta.actions_enabled&&e.ip&&jails.length?`<button class="danger ghost" data-action="ban" data-jail="${esc(jails[0].name)}" data-ip="${esc(e.ip)}">Бан</button>`:''}</td></tr>`).join(''):`<tr><td colspan="5" class="empty">События не найдены или нет доступа к journal</td></tr>`;
+  $('events').innerHTML=events.length?events.slice(0,50).map(e=>`<tr><td>${esc(fmtTime(e.timestamp))}</td><td><span class="badge ${e.type==='success'?'ok':'bad'}">${e.type==='success'?'успешно':'ошибка'}</span></td><td>${esc(e.user)}</td><td>${esc(e.ip)}</td><td>${esc(e.method)}</td><td>${meta.actions_enabled&&e.ip&&jails.length?`<button class="danger ghost" data-action="ban" data-jail="${esc(jails[0].name)}" data-ip="${esc(e.ip)}">Бан</button>`:''}</td></tr>`).join(''):`<tr><td colspan="6" class="empty">События не найдены или нет доступа к journal</td></tr>`;
 
   renderFail2ban(fail2ban,meta);
   $('network-count').textContent=String(num(network.summary?.total));
   $('network-traffic-count').textContent=`с трафиком ${num(network.summary?.with_traffic)}`;
   state.network=network; state.processes=processes;
-  renderConnections(); renderProcessTraffic(); renderProcesses();
+  renderConnections(); renderProcessTraffic(); renderProcesses(); renderUsers();
 }
 
 async function load(){
   try{
+    if(!sessionStorage.getItem('scoutCsrf')){
+      const auth=await fetch('/api/auth/session',{cache:'no-store'});
+      if(auth.status===401){location.href='/login';return;}
+      const authBody=await auth.json();
+      sessionStorage.setItem('scoutCsrf',authBody.csrf||'');
+    }
     const r=await fetch(`/api/dashboard?_=${Date.now()}`,{cache:'no-store'});
-    if(r.status===401){ location.reload(); return; }
+    if(r.status===401){ location.href='/login'; return; }
     const body=await r.json().catch(()=>({}));
     if(!r.ok) throw new Error(body.detail||`HTTP ${r.status}`);
     render(body);
@@ -168,7 +170,6 @@ document.addEventListener('click',(event)=>{
   if(kind==='disconnect') action('/api/actions/ssh/disconnect',{tty:button.dataset.tty},`Отключить SSH-сессию пользователя ${button.dataset.user} на ${button.dataset.tty}?`);
   if(kind==='ban') action('/api/actions/fail2ban/ban',{jail:button.dataset.jail,ip:button.dataset.ip},`Заблокировать ${button.dataset.ip} через jail ${button.dataset.jail}?`);
   if(kind==='unban') action('/api/actions/fail2ban/unban',{jail:button.dataset.jail,ip:button.dataset.ip},`Удалить ${button.dataset.ip} из бана jail ${button.dataset.jail}?`);
-  if(kind==='clear-action-token'){sessionStorage.removeItem('scoutActionToken');toast('Административный токен удалён из вкладки');}
 });
 
 document.addEventListener('submit',(event)=>{
@@ -181,6 +182,8 @@ document.addEventListener('submit',(event)=>{
 });
 
 $('process-filter').addEventListener('input',renderProcesses);
+$('users-filter').addEventListener('input',renderUsers);
+$('logout-button').addEventListener('click', async()=>{const csrf=sessionStorage.getItem('scoutCsrf')||''; await fetch('/api/auth/logout',{method:'POST',headers:{'X-CSRF-Token':csrf}}); sessionStorage.clear(); location.href='/login';});
 $('network-filter').addEventListener('input',renderConnections);
 ['hide-loopback','active-traffic-only','hide-passive'].forEach(id=>$(id).addEventListener('change',renderConnections));
 document.querySelectorAll('[data-proc-sort]').forEach(el=>el.addEventListener('click',()=>{const key=el.dataset.procSort;processSort={key,direction:processSort.key===key?-processSort.direction:(['cpu_percent','memory_percent','pid'].includes(key)?-1:1)};renderProcesses();}));

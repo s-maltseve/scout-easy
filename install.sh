@@ -2,53 +2,27 @@
 set -Eeuo pipefail
 [[ $EUID -eq 0 ]] || { echo 'Запусти: sudo bash install.sh'; exit 1; }
 command -v apt-get >/dev/null || { echo 'Поддерживаются Debian/Ubuntu'; exit 1; }
-INSTALL_DIR=/opt/scout-easy; CONFIG_DIR=/etc/scout-easy; SERVICE=scout-easy.service
+INSTALL_DIR=/opt/scout-easy
+CONFIG_DIR=/etc/scout-easy
+ENV_FILE="$CONFIG_DIR/scout-easy.env"
+SERVICE=scout-easy.service
 SOURCE_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-NON_INTERACTIVE=false; [[ ${1:-} == --non-interactive ]] && NON_INTERACTIVE=true
+NON_INTERACTIVE=false
+[[ ${1:-} == --non-interactive ]] && NON_INTERACTIVE=true
+
 apt-get update
-apt-get install -y python3 python3-venv python3-pip rsync curl nginx
+apt-get install -y python3 python3-venv python3-pip rsync curl nginx qrencode
 mkdir -p "$INSTALL_DIR" "$CONFIG_DIR"
 systemctl stop "$SERVICE" 2>/dev/null || true
 rsync -a --delete --exclude .git --exclude .venv --exclude __pycache__ --exclude .pytest_cache "$SOURCE_DIR/" "$INSTALL_DIR/"
 [[ -x "$INSTALL_DIR/.venv/bin/python3" ]] || python3 -m venv "$INSTALL_DIR/.venv"
 "$INSTALL_DIR/.venv/bin/pip" install --upgrade pip
 "$INSTALL_DIR/.venv/bin/pip" install -r "$INSTALL_DIR/requirements.txt"
-ENV_FILE="$CONFIG_DIR/scout-easy.env"
-
-generate_username() {
- python3 - <<'PYGEN'
-import secrets
-import string
-alphabet = string.ascii_lowercase + string.digits
-print("scout-" + "".join(secrets.choice(alphabet) for _ in range(12)))
-PYGEN
-}
-
-generate_secret() {
- local length="${1:-48}"
- python3 - "$length" <<'PYGEN'
-import secrets
-import string
-import sys
-length = int(sys.argv[1])
-special = "!@#$%^&*_-+=:"
-groups = [string.ascii_lowercase, string.ascii_uppercase, string.digits, special]
-alphabet = "".join(groups)
-while True:
-    chars = [secrets.choice(group) for group in groups]
-    chars.extend(secrets.choice(alphabet) for _ in range(length - len(chars)))
-    secrets.SystemRandom().shuffle(chars)
-    value = "".join(chars)
-    if all(any(ch in group for ch in value) for group in groups):
-        print(value)
-        break
-PYGEN
-}
 
 read_env_value() {
  local key="$1"
  [[ -f "$ENV_FILE" ]] || return 0
- python3 - "$ENV_FILE" "$key" <<'PYREAD'
+ "$INSTALL_DIR/.venv/bin/python3" - "$ENV_FILE" "$key" <<'PY'
 from pathlib import Path
 import sys
 path, key = Path(sys.argv[1]), sys.argv[2]
@@ -64,93 +38,126 @@ for raw in path.read_text(errors="replace").splitlines():
         value = value[1:-1]
     print(value)
     break
-PYREAD
+PY
+}
+
+generate_username() { "$INSTALL_DIR/.venv/bin/python3" - <<'PY'
+import secrets,string
+print('scout-' + ''.join(secrets.choice(string.ascii_lowercase + string.digits) for _ in range(12)))
+PY
+}
+generate_password() { "$INSTALL_DIR/.venv/bin/python3" - <<'PY'
+import secrets,string
+special='!@#$%^&*_-+=:'
+groups=[string.ascii_lowercase,string.ascii_uppercase,string.digits,special]
+alphabet=''.join(groups)
+while True:
+ c=[secrets.choice(g) for g in groups]+[secrets.choice(alphabet) for _ in range(36)]
+ secrets.SystemRandom().shuffle(c); p=''.join(c)
+ if all(any(x in g for x in p) for g in groups): print(p); break
+PY
+}
+hash_password() { "$INSTALL_DIR/.venv/bin/python3" - "$1" <<'PY'
+import sys
+sys.path.insert(0, '/opt/scout-easy')
+from app.security import hash_password
+print(hash_password(sys.argv[1]))
+PY
+}
+generate_totp() { "$INSTALL_DIR/.venv/bin/python3" - <<'PY'
+import sys
+sys.path.insert(0, '/opt/scout-easy')
+from app.security import generate_totp_secret
+print(generate_totp_secret())
+PY
 }
 
 SCOUT_USERNAME="$(read_env_value SCOUT_USERNAME)"
-SCOUT_PASSWORD="$(read_env_value SCOUT_PASSWORD)"
-SCOUT_ACTION_TOKEN="$(read_env_value SCOUT_ACTION_TOKEN)"
+SCOUT_PASSWORD_HASH="$(read_env_value SCOUT_PASSWORD_HASH)"
+LEGACY_PASSWORD="$(read_env_value SCOUT_PASSWORD)"
+SCOUT_TOTP_SECRET="$(read_env_value SCOUT_TOTP_SECRET)"
 SCOUT_ACTIONS_ENABLED="$(read_env_value SCOUT_ACTIONS_ENABLED)"
+SCOUT_USERNAME=${SCOUT_USERNAME:-$(generate_username)}
+SCOUT_ACTIONS_ENABLED=${SCOUT_ACTIONS_ENABLED:-true}
+NEW_PASSWORD=""
+if [[ -z "$SCOUT_PASSWORD_HASH" ]]; then
+  NEW_PASSWORD=${LEGACY_PASSWORD:-$(generate_password)}
+  SCOUT_PASSWORD_HASH="$(hash_password "$NEW_PASSWORD")"
+fi
+if [[ -z "$SCOUT_TOTP_SECRET" ]]; then
+  SCOUT_TOTP_SECRET="$(generate_totp)"
+fi
 
-[[ -n "$SCOUT_USERNAME" ]] || SCOUT_USERNAME="$(generate_username)"
-[[ -n "$SCOUT_PASSWORD" ]] || SCOUT_PASSWORD="$(generate_secret 40)"
-[[ -n "$SCOUT_ACTION_TOKEN" ]] || SCOUT_ACTION_TOKEN="$(generate_secret 64)"
-[[ -n "$SCOUT_ACTIONS_ENABLED" ]] || SCOUT_ACTIONS_ENABLED=true
-
-# Перезаписываем конфигурацию атомарно: старые секреты сохраняются,
-# отсутствующие или пустые значения генерируются автоматически.
-TMP_ENV="$(mktemp)"
+value_or_default(){ local key=$1 def=$2 value; value="$(read_env_value "$key")"; printf '%s' "${value:-$def}"; }
+TMP_ENV=$(mktemp)
 cat > "$TMP_ENV" <<ENV
 SCOUT_USERNAME='$SCOUT_USERNAME'
-SCOUT_PASSWORD='$SCOUT_PASSWORD'
-SCOUT_AUTH_ENABLED=true
+SCOUT_PASSWORD_HASH='$SCOUT_PASSWORD_HASH'
+SCOUT_TOTP_SECRET='$SCOUT_TOTP_SECRET'
+SCOUT_TOTP_ISSUER='SCOUT-EASY'
 SCOUT_ACTIONS_ENABLED=$SCOUT_ACTIONS_ENABLED
-SCOUT_ACTION_TOKEN='$SCOUT_ACTION_TOKEN'
-SCOUT_ALLOWED_IPS=$(read_env_value SCOUT_ALLOWED_IPS)
-SCOUT_BIND_HOST=$(read_env_value SCOUT_BIND_HOST)
-SCOUT_BIND_PORT=$(read_env_value SCOUT_BIND_PORT)
-SCOUT_REFRESH_SECONDS=$(read_env_value SCOUT_REFRESH_SECONDS)
-SCOUT_MAX_CONNECTIONS=$(read_env_value SCOUT_MAX_CONNECTIONS)
-SCOUT_MAX_EVENTS=$(read_env_value SCOUT_MAX_EVENTS)
-SCOUT_LOGIN_ATTEMPTS=$(read_env_value SCOUT_LOGIN_ATTEMPTS)
-SCOUT_LOGIN_WINDOW_SECONDS=$(read_env_value SCOUT_LOGIN_WINDOW_SECONDS)
+SCOUT_ALLOWED_IPS=$(value_or_default SCOUT_ALLOWED_IPS '')
+SCOUT_BIND_HOST=$(value_or_default SCOUT_BIND_HOST 127.0.0.1)
+SCOUT_BIND_PORT=$(value_or_default SCOUT_BIND_PORT 8765)
+SCOUT_REFRESH_SECONDS=$(value_or_default SCOUT_REFRESH_SECONDS 5)
+SCOUT_MAX_CONNECTIONS=$(value_or_default SCOUT_MAX_CONNECTIONS 250)
+SCOUT_MAX_EVENTS=$(value_or_default SCOUT_MAX_EVENTS 100)
+SCOUT_LOGIN_ATTEMPTS=$(value_or_default SCOUT_LOGIN_ATTEMPTS 5)
+SCOUT_LOGIN_WINDOW_SECONDS=$(value_or_default SCOUT_LOGIN_WINDOW_SECONDS 600)
+SCOUT_SESSION_MINUTES=$(value_or_default SCOUT_SESSION_MINUTES 30)
+SCOUT_SECURE_COOKIE=$(value_or_default SCOUT_SECURE_COOKIE true)
 ENV
-
-# Значения по умолчанию для параметров, отсутствовавших в старом конфиге.
-sed -i \
- -e 's/^SCOUT_BIND_HOST=$/SCOUT_BIND_HOST=127.0.0.1/' \
- -e 's/^SCOUT_BIND_PORT=$/SCOUT_BIND_PORT=8765/' \
- -e 's/^SCOUT_REFRESH_SECONDS=$/SCOUT_REFRESH_SECONDS=5/' \
- -e 's/^SCOUT_MAX_CONNECTIONS=$/SCOUT_MAX_CONNECTIONS=250/' \
- -e 's/^SCOUT_MAX_EVENTS=$/SCOUT_MAX_EVENTS=100/' \
- -e 's/^SCOUT_LOGIN_ATTEMPTS=$/SCOUT_LOGIN_ATTEMPTS=8/' \
- -e 's/^SCOUT_LOGIN_WINDOW_SECONDS=$/SCOUT_LOGIN_WINDOW_SECONDS=300/' \
- "$TMP_ENV"
 install -m 0600 "$TMP_ENV" "$ENV_FILE"
 rm -f "$TMP_ENV"
 install -m 0644 "$INSTALL_DIR/systemd/scout-easy.service" /etc/systemd/system/scout-easy.service
 install -m 0755 "$INSTALL_DIR/scout-easy-manager.sh" /usr/local/bin/scout-easy
-systemctl daemon-reload; systemctl enable "$SERVICE" nginx >/dev/null; systemctl restart "$SERVICE" nginx
+systemctl daemon-reload
+systemctl enable "$SERVICE" nginx >/dev/null
+systemctl restart "$SERVICE" nginx
+
 configure_https(){
- local target=$1 email=$2 mode=$3 webroot=/var/www/scout-easy-acme
- mkdir -p "$webroot/.well-known/acme-challenge"
+ local target=$1 email=$2
+ apt-get install -y certbot python3-certbot-nginx
  cat > /etc/nginx/sites-available/scout-easy <<NGINX
-server { listen 80; listen [::]:80; server_name $target;
- location /.well-known/acme-challenge/ { root $webroot; }
- location / { proxy_pass http://127.0.0.1:8765; proxy_set_header Host \$host; proxy_set_header X-Real-IP \$remote_addr; proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto \$scheme; }
+server {
+ listen 80; listen [::]:80;
+ server_name $target;
+ location / {
+  proxy_pass http://127.0.0.1:8765;
+  proxy_set_header Host \$host;
+  proxy_set_header X-Real-IP \$remote_addr;
+  proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+  proxy_set_header X-Forwarded-Proto \$scheme;
+ }
 }
 NGINX
- ln -sf /etc/nginx/sites-available/scout-easy /etc/nginx/sites-enabled/scout-easy; nginx -t; systemctl reload nginx
- if [[ $mode == domain ]]; then
-  apt-get install -y certbot python3-certbot-nginx
-  certbot --nginx -d "$target" --non-interactive --agree-tos -m "$email" --redirect
- else
-  command -v snap >/dev/null || apt-get install -y snapd
-  snap install core >/dev/null 2>&1 || true; snap refresh core >/dev/null 2>&1 || true; snap install --classic certbot >/dev/null 2>&1 || snap refresh certbot >/dev/null 2>&1
-  ln -sf /snap/bin/certbot /usr/local/bin/certbot
-  certbot certonly --preferred-profile shortlived --webroot --webroot-path "$webroot" --ip-address "$target" --non-interactive --agree-tos -m "$email"
-  cat > /etc/nginx/sites-available/scout-easy <<NGINX
-server { listen 80; listen [::]:80; server_name $target; return 301 https://\$host\$request_uri; }
-server { listen 443 ssl; listen [::]:443 ssl; server_name $target;
- ssl_certificate /etc/letsencrypt/live/$target/fullchain.pem; ssl_certificate_key /etc/letsencrypt/live/$target/privkey.pem;
- location / { proxy_pass http://127.0.0.1:8765; proxy_set_header Host \$host; proxy_set_header X-Real-IP \$remote_addr; proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto https; }
-}
-NGINX
-  nginx -t; systemctl reload nginx
- fi
+ ln -sf /etc/nginx/sites-available/scout-easy /etc/nginx/sites-enabled/scout-easy
+ nginx -t && systemctl reload nginx
+ certbot --nginx -d "$target" --non-interactive --agree-tos -m "$email" --redirect
 }
 if ! $NON_INTERACTIVE && [[ -t 0 ]]; then
- read -rp 'Настроить публичный HTTPS-доступ? [y/N]: ' yn
+ read -rp 'Настроить публичный HTTPS-доступ для домена? [y/N]: ' yn
  if [[ $yn =~ ^[Yy]$ ]]; then
-  read -rp 'Домен или публичный IP: ' target
+  read -rp 'Домен: ' target
   read -rp 'Email для Let’s Encrypt: ' email
-  if [[ $target =~ ^[0-9a-fA-F:.]+$ ]]; then configure_https "$target" "$email" ip; else configure_https "$target" "$email" domain; fi
+  configure_https "$target" "$email"
  fi
 fi
-sleep 1; systemctl is-active --quiet "$SERVICE" || { journalctl -u "$SERVICE" -n 50 --no-pager; exit 1; }
+sleep 1
+systemctl is-active --quiet "$SERVICE" || { journalctl -u "$SERVICE" -n 80 --no-pager; exit 1; }
+
+URI="$($INSTALL_DIR/.venv/bin/python3 - "$SCOUT_TOTP_SECRET" "$SCOUT_USERNAME" <<'PY'
+import sys
+sys.path.insert(0, '/opt/scout-easy')
+from app.security import provisioning_uri
+print(provisioning_uri(sys.argv[1], sys.argv[2]))
+PY
+)"
 echo
-echo 'SCOUT-EASY установлен.'
+echo 'SCOUT-EASY 0.6.0 установлен.'
 echo "Логин: $SCOUT_USERNAME"
-echo "Пароль: $SCOUT_PASSWORD"
-echo "Admin token: $SCOUT_ACTION_TOKEN"
-echo 'Менеджер: sudo scout-easy' 
+if [[ -n "$NEW_PASSWORD" ]]; then echo "Пароль: $NEW_PASSWORD"; else echo 'Пароль сохранён. Для смены: sudo scout-easy'; fi
+echo 'Добавь 2FA в Aegis, 2FAS, Bitwarden или Google Authenticator:'
+qrencode -t ANSIUTF8 "$URI" || true
+echo "Секрет 2FA: $SCOUT_TOTP_SECRET"
+echo 'Менеджер: sudo scout-easy'

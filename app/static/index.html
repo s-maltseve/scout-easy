@@ -1,44 +1,11 @@
 <!doctype html>
-<html lang="ru">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>SCOUT-EASY</title>
-  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png?v=0.5.0" />
-  <link rel="icon" type="image/png" href="/static/favicon.png?v=0.5.0" />
-  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png?v=0.5.0" />
-  <link rel="stylesheet" href="/static/style.css?v=0.5.0" />
-</head>
-<body>
-  <header class="topbar">
-    <div class="brand"><img class="brand-logo" src="/static/scout-easy-logo.png?v=0.5.0" alt="" /><div><h1>SCOUT-EASY</h1><p>Лёгкая панель безопасности Linux</p></div></div>
-    <div class="status"><span id="status-dot"></span><span id="status-text">Загрузка…</span></div>
-  </header>
-  <main>
-    <section id="alerts" class="alerts"></section><section class="cards" id="overview"></section>
-    <section class="grid two">
-      <article class="panel"><div class="panel-title"><h2>Система</h2><span id="hostname"></span></div><div id="system"></div></article>
-      <article class="panel"><div class="panel-title"><h2>Сетевой трафик</h2><span>без loopback</span></div><div id="traffic"></div></article>
-    </section>
-    <section class="grid two">
-      <article class="panel"><div class="panel-title"><h2>Активные SSH-сессии</h2><span id="session-count"></span></div><div class="table-wrap"><table><thead><tr><th>Пользователь</th><th>IP</th><th>TTY</th><th>Начало</th><th></th></tr></thead><tbody id="sessions"></tbody></table></div></article>
-      <article class="panel"><div class="panel-title"><h2>События SSH</h2><span>последние записи</span></div><div class="table-wrap"><table><thead><tr><th>Статус</th><th>Пользователь</th><th>IP</th><th>Метод</th><th></th></tr></thead><tbody id="events"></tbody></table></div></article>
-    </section>
-    <section class="grid one"><article class="panel"><div class="panel-title"><h2>Fail2ban</h2><span id="f2b-status"></span></div><div id="fail2ban"></div></article></section>
-    <section class="grid one">
-      <article class="panel">
-        <div class="panel-title controls-title"><div><h2>Сетевые соединения</h2><span id="network-count"></span><span id="network-traffic-count"></span><span id="connection-visible-count"></span></div><input id="network-filter" class="filter" type="search" placeholder="Фильтр: IP, порт, процесс…" /></div>
-        <div class="toggle-row"><label><input id="hide-loopback" type="checkbox" checked /> скрыть loopback</label><label><input id="hide-passive" type="checkbox" checked /> скрыть LISTEN/TIME_WAIT</label><label><input id="active-traffic-only" type="checkbox" /> только активный трафик</label></div>
-        <div class="table-wrap"><table><thead><tr><th data-net-sort="process">Процесс ↕</th><th data-net-sort="local">Локально ↕</th><th data-net-sort="remote">Удалённо ↕</th><th data-net-sort="status">Статус ↕</th><th data-net-sort="recv_per_second">↓ Сейчас ↕</th><th data-net-sort="sent_per_second">↑ Сейчас ↕</th><th data-net-sort="bytes_all">Всего ↕</th></tr></thead><tbody id="connections"></tbody></table></div>
-      </article>
-    </section>
-    <section class="grid two">
-      <article class="panel"><div class="panel-title"><h2>Трафик по процессам</h2><span>TCP</span></div><div class="table-wrap"><table><thead><tr><th>Процесс</th><th>↓ Сейчас</th><th>↑ Сейчас</th><th>Всего</th></tr></thead><tbody id="process-traffic"></tbody></table></div></article>
-      <article class="panel"><div class="panel-title controls-title"><div><h2>Процессы</h2><span id="process-order">по CPU</span></div><input id="process-filter" class="filter" type="search" placeholder="Фильтр: PID, имя, пользователь…" /></div><div class="table-wrap"><table><thead><tr><th data-proc-sort="pid">PID ↕</th><th data-proc-sort="name">Процесс ↕</th><th data-proc-sort="cpu_percent">CPU ↕</th><th data-proc-sort="memory_percent">RAM ↕</th></tr></thead><tbody id="processes"></tbody></table></div></article>
-    </section>
-  </main>
-  <div id="toast" class="toast" role="status"></div>
-  <footer>SCOUT-EASY <span id="version"></span> · <span id="mode">режим только чтения</span></footer>
-  <script src="/static/app.js?v=0.5.0"></script>
-</body>
-</html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SCOUT-EASY</title><link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png?v=0.6.0"><link rel="icon" type="image/png" href="/static/favicon.png?v=0.6.0"><link rel="apple-touch-icon" href="/static/apple-touch-icon.png?v=0.6.0"><link rel="stylesheet" href="/static/style.css?v=0.6.0"></head>
+<body><header class="topbar"><div class="brand"><img class="brand-logo" src="/static/scout-easy-logo.png?v=0.6.0" alt=""><div><h1>SCOUT-EASY</h1><p>Лёгкая панель безопасности Linux</p></div></div><div class="top-actions"><div class="status"><span id="status-dot"></span><span id="status-text">Загрузка…</span></div><button id="logout-button" class="ghost">Выйти</button></div></header>
+<main><section id="alerts" class="alerts"></section><section class="cards" id="overview"></section>
+<section class="grid two"><article class="panel"><div class="panel-title"><h2>Система</h2><span id="hostname"></span></div><div id="system"></div></article><article class="panel"><div class="panel-title"><h2>Сетевой трафик</h2><span>без loopback</span></div><div id="traffic"></div></article></section>
+<section class="grid two"><article class="panel"><div class="panel-title"><h2>Активные SSH-сессии</h2><span id="session-count"></span></div><div class="table-wrap"><table><thead><tr><th>Пользователь</th><th>IP</th><th>TTY</th><th>Начало</th><th></th></tr></thead><tbody id="sessions"></tbody></table></div></article><article class="panel"><div class="panel-title"><h2>События SSH</h2><span>последние записи</span></div><div class="table-wrap"><table><thead><tr><th>Время</th><th>Статус</th><th>Пользователь</th><th>IP</th><th>Метод</th><th></th></tr></thead><tbody id="events"></tbody></table></div></article></section>
+<section class="grid one"><article class="panel"><div class="panel-title"><h2>Fail2ban</h2><span id="f2b-status"></span></div><div id="fail2ban"></div></article></section>
+<section class="grid one"><article class="panel"><div class="panel-title controls-title"><div><h2>Все пользователи Linux</h2><span id="users-count"></span></div><input id="users-filter" class="filter" type="search" placeholder="Фильтр: имя, UID, группа, shell…"></div><div class="table-wrap"><table><thead><tr><th>Пользователь</th><th>Тип и права</th><th>Группы</th><th>Shell</th><th>Вход</th><th>Домашний каталог</th></tr></thead><tbody id="users"></tbody></table></div></article></section>
+<section class="grid one"><article class="panel"><div class="panel-title controls-title"><div><h2>Сетевые соединения</h2><span id="network-count"></span><span id="network-traffic-count"></span><span id="connection-visible-count"></span></div><input id="network-filter" class="filter" type="search" placeholder="Фильтр: IP, порт, процесс…"></div><div class="toggle-row"><label><input id="hide-loopback" type="checkbox" checked> скрыть loopback</label><label><input id="hide-passive" type="checkbox" checked> скрыть LISTEN/TIME_WAIT</label><label><input id="active-traffic-only" type="checkbox"> только активный трафик</label></div><div class="table-wrap"><table><thead><tr><th data-net-sort="process">Процесс ↕</th><th data-net-sort="local">Локально ↕</th><th data-net-sort="remote">Удалённо ↕</th><th data-net-sort="status">Статус ↕</th><th data-net-sort="recv_per_second">↓ Сейчас ↕</th><th data-net-sort="sent_per_second">↑ Сейчас ↕</th><th data-net-sort="bytes_all">Всего ↕</th></tr></thead><tbody id="connections"></tbody></table></div></article></section>
+<section class="grid two"><article class="panel"><div class="panel-title"><h2>Трафик по процессам</h2><span>TCP</span></div><div class="table-wrap"><table><thead><tr><th>Процесс</th><th>↓ Сейчас</th><th>↑ Сейчас</th><th>Всего</th></tr></thead><tbody id="process-traffic"></tbody></table></div></article><article class="panel"><div class="panel-title controls-title"><div><h2>Процессы</h2><span id="process-order">по CPU</span></div><input id="process-filter" class="filter" type="search" placeholder="Фильтр: PID, имя, пользователь…"></div><div class="table-wrap"><table><thead><tr><th data-proc-sort="pid">PID ↕</th><th data-proc-sort="name">Процесс ↕</th><th data-proc-sort="cpu_percent">CPU ↕</th><th data-proc-sort="memory_percent">RAM ↕</th></tr></thead><tbody id="processes"></tbody></table></div></article></section></main>
+<div id="toast" class="toast" role="status"></div><footer>SCOUT-EASY <span id="version"></span> · <span id="mode">2FA</span></footer><script src="/static/app.js?v=0.6.0"></script></body></html>
