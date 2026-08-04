@@ -154,7 +154,7 @@ print(provisioning_uri(sys.argv[1], sys.argv[2]))
 PY
 )"
 echo
-echo 'SCOUT-EASY 0.6.0 установлен.'
+echo 'SCOUT-EASY 0.7.0 установлен.'
 echo "Логин: $SCOUT_USERNAME"
 if [[ -n "$NEW_PASSWORD" ]]; then echo "Пароль: $NEW_PASSWORD"; else echo 'Пароль сохранён. Для смены: sudo scout-easy'; fi
 echo 'Добавь 2FA в Aegis, 2FAS, Bitwarden или Google Authenticator:'

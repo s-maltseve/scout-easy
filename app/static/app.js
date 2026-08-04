@@ -105,8 +105,10 @@ function renderFail2ban(fail2ban, meta){
 function renderUsers(){
   const q=$('users-filter')?.value.trim().toLowerCase() || '';
   const rows=list(state?.users?.users).filter(u=>!q||searchable(u).includes(q));
-  $('users-count').textContent=`${rows.length} пользователей`;
-  $('users').innerHTML=rows.length?rows.map(u=>`<tr><td><b>${esc(u.username)}</b><small class="sub">UID ${esc(u.uid)} · GID ${esc(u.gid)}</small></td><td>${u.is_admin?'<span class="badge bad">администратор</span>':u.is_system?'<span class="badge">системный</span>':'<span class="badge ok">обычный</span>'}</td><td>${list(u.groups).map(g=>`<span class="group-chip">${esc(g)}</span>`).join(' ')}</td><td>${esc(u.shell)}</td><td>${u.login_allowed?'разрешён':'запрещён'}</td><td>${esc(u.home)}</td></tr>`).join(''):`<tr><td colspan="6" class="empty">Пользователи не найдены</td></tr>`;
+  const summary=obj(state?.users?.summary);
+  $('users-count').textContent=`всего ${num(summary.total)} · пользовательских ${num(summary.human)} · системных ${num(summary.system)} · администраторов ${num(summary.admin)} · интерактивных ${num(summary.interactive)}`;
+  const badgeClass=(tag)=>tag==='администратор'||tag==='повышенные права'?'bad':tag==='создана пользователем'||tag==='интерактивная'?'ok':tag==='служебная'?'info':'';
+  $('users').innerHTML=rows.length?rows.map(u=>`<tr><td><b>${esc(u.username)}</b><small class="sub">UID ${esc(u.uid)} · GID ${esc(u.gid)}</small></td><td><div class="tag-list">${list(u.tags).map(t=>`<span class="badge ${badgeClass(t)}">${esc(t)}</span>`).join('')}</div></td><td>${list(u.groups).map(g=>`<span class="group-chip">${esc(g)}</span>`).join(' ')}</td><td>${esc(u.shell)}</td><td>${u.login_allowed?'разрешён':'запрещён'}</td><td>${esc(u.home)}</td></tr>`).join(''):`<tr><td colspan="6" class="empty">Пользователи не найдены</td></tr>`;
 }
 
 function render(data){
@@ -183,10 +185,39 @@ document.addEventListener('submit',(event)=>{
 
 $('process-filter').addEventListener('input',renderProcesses);
 $('users-filter').addEventListener('input',renderUsers);
-$('logout-button').addEventListener('click', async()=>{const csrf=sessionStorage.getItem('scoutCsrf')||''; await fetch('/api/auth/logout',{method:'POST',headers:{'X-CSRF-Token':csrf}}); sessionStorage.clear(); location.href='/login';});
+$('logout-button')?.addEventListener('click', async()=>{const csrf=sessionStorage.getItem('scoutCsrf')||''; await fetch('/api/auth/logout',{method:'POST',headers:{'X-CSRF-Token':csrf}}); sessionStorage.clear(); location.href='/login';});
 $('network-filter').addEventListener('input',renderConnections);
 ['hide-loopback','active-traffic-only','hide-passive'].forEach(id=>$(id).addEventListener('change',renderConnections));
 document.querySelectorAll('[data-proc-sort]').forEach(el=>el.addEventListener('click',()=>{const key=el.dataset.procSort;processSort={key,direction:processSort.key===key?-processSort.direction:(['cpu_percent','memory_percent','pid'].includes(key)?-1:1)};renderProcesses();}));
 document.querySelectorAll('[data-net-sort]').forEach(el=>el.addEventListener('click',()=>{const key=el.dataset.netSort;networkSort={key,direction:networkSort.key===key?-networkSort.direction:(['recv_per_second','sent_per_second','bytes_all'].includes(key)?-1:1)};renderConnections();}));
 
-load(); setInterval(load,5000);
+
+let profileData = null;
+function csrf(){ return sessionStorage.getItem('scoutCsrf') || ''; }
+function setTheme(theme){ document.documentElement.dataset.theme=theme; localStorage.setItem('scoutTheme',theme); }
+setTheme(localStorage.getItem('scoutTheme') || (matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'));
+
+async function loadProfile(){
+  const r=await fetch('/api/profile',{cache:'no-store'}); if(!r.ok) return;
+  profileData=await r.json(); $('profile-name').textContent=profileData.display_name||profileData.username;
+  $('display-name-input').value=profileData.display_name||profileData.username;
+  const bust=`?t=${Date.now()}`; $('profile-avatar').src='/api/profile/avatar'+bust; $('profile-avatar-large').src='/api/profile/avatar'+bust;
+}
+function openProfile(){ $('profile-modal').hidden=false; $('profile-menu').hidden=true; loadProfile(); }
+function closeProfile(){ $('profile-modal').hidden=true; }
+async function jsonRequest(path,method,body){
+  const r=await fetch(path,{method,headers:{'Content-Type':'application/json','X-CSRF-Token':csrf()},body:body?JSON.stringify(body):undefined});
+  const data=await r.json().catch(()=>({})); if(!r.ok) throw new Error(data.detail||`HTTP ${r.status}`); return data;
+}
+async function logout(){ await fetch('/api/auth/logout',{method:'POST',headers:{'X-CSRF-Token':csrf()}}); sessionStorage.clear(); location.href='/login'; }
+$('profile-button').addEventListener('click',()=>{const m=$('profile-menu');m.hidden=!m.hidden;$('profile-button').setAttribute('aria-expanded',String(!m.hidden));});
+$('profile-close').addEventListener('click',closeProfile);
+$('profile-modal').addEventListener('click',e=>{if(e.target===$('profile-modal')) closeProfile();});
+document.addEventListener('click',e=>{const p=e.target.closest('[data-profile]');if(!p)return;const a=p.dataset.profile;if(a==='open')openProfile();if(a==='theme')setTheme(document.documentElement.dataset.theme==='dark'?'light':'dark');if(a==='logout')logout();});
+$('display-name-form').addEventListener('submit',async e=>{e.preventDefault();try{await jsonRequest('/api/profile','PUT',{display_name:$('display-name-input').value.trim()});toast('Имя обновлено');loadProfile();}catch(x){toast(x.message,true);}});
+$('password-form').addEventListener('submit',async e=>{e.preventDefault();try{await jsonRequest('/api/profile/password','POST',{current_password:$('current-password').value,new_password:$('new-password').value,totp:$('password-totp').value});e.target.reset();toast('Пароль изменён');}catch(x){toast(x.message,true);}});
+$('totp-form').addEventListener('submit',async e=>{e.preventDefault();try{const d=await jsonRequest('/api/profile/2fa/reset','POST',{password:$('totp-password').value,totp:$('totp-current').value});$('totp-result').innerHTML=`<div class="totp-secret"><b>Новый секрет:</b><code>${esc(d.secret)}</code><p>Добавь этот секрет в приложение-аутентификатор. Старый секрет уже недействителен.</p></div>`;toast('2FA пересоздана');}catch(x){toast(x.message,true);}});
+$('avatar-input').addEventListener('change',async e=>{const f=e.target.files[0];if(!f)return;const form=new FormData();form.append('avatar',f);try{const r=await fetch('/api/profile/avatar',{method:'POST',headers:{'X-CSRF-Token':csrf()},body:form});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.detail||`HTTP ${r.status}`);toast('Аватар обновлён');loadProfile();}catch(x){toast(x.message,true);}});
+$('logout-button')?.remove();
+
+loadProfile(); load(); setInterval(load,5000);

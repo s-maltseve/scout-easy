@@ -31,7 +31,7 @@ class Settings:
     max_events: int = int(os.getenv("SCOUT_MAX_EVENTS", "100"))
     login_attempts: int = int(os.getenv("SCOUT_LOGIN_ATTEMPTS", "5"))
     login_window_seconds: int = int(os.getenv("SCOUT_LOGIN_WINDOW_SECONDS", "600"))
-    session_minutes: int = int(os.getenv("SCOUT_SESSION_MINUTES", "30"))
+    session_minutes: int = int(os.getenv("SCOUT_SESSION_MINUTES", "480"))
     secure_cookie: bool = _bool_env("SCOUT_SECURE_COOKIE", True)
 
 

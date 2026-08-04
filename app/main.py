@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import logging
+import json
+import os
+import re
+import subprocess
+import tempfile
+from datetime import datetime, timezone
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFile, File
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -31,11 +37,53 @@ from app.security import (
     record_failure,
     require_session,
     verify_credentials,
+    hash_password,
+    verify_password,
+    generate_totp_secret,
+    provisioning_uri,
+    update_password_hash,
+    update_totp_secret,
+    delete_all_sessions_except,
 )
 
 logger = logging.getLogger("scout-easy")
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
+
+PROFILE_DIR = Path(os.getenv("SCOUT_PROFILE_DIR", "/var/lib/scout-easy"))
+PROFILE_FILE = PROFILE_DIR / "profile.json"
+AVATAR_FILE = PROFILE_DIR / "avatar.png"
+ENV_FILE = Path("/etc/scout-easy/scout-easy.env")
+
+
+def _load_profile() -> dict[str, Any]:
+    try:
+        return json.loads(PROFILE_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {"display_name": settings.username}
+
+
+def _save_profile(data: dict[str, Any]) -> None:
+    PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+    PROFILE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.chmod(PROFILE_FILE, 0o600)
+
+
+def _replace_env_value(key: str, value: str) -> None:
+    if not re.fullmatch(r"[A-Z0-9_]+", key):
+        raise ValueError("invalid key")
+    lines = ENV_FILE.read_text(encoding="utf-8").splitlines() if ENV_FILE.exists() else []
+    replacement = f"{key}='{value.replace(chr(39), '')}'"
+    found = False
+    output = []
+    for line in lines:
+        if line.startswith(f"{key}="):
+            output.append(replacement); found = True
+        else:
+            output.append(line)
+    if not found: output.append(replacement)
+    ENV_FILE.write_text("\n".join(output) + "\n", encoding="utf-8")
+    os.chmod(ENV_FILE, 0o600)
 
 app = FastAPI(title=settings.app_name, version=__version__, docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -59,6 +107,23 @@ async def security_headers(request: Request, call_next):
 
 class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=128)
+    password: str = Field(min_length=1, max_length=256)
+    totp: str = Field(pattern=r"^\d{6}$")
+
+
+
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=256)
+    new_password: str = Field(min_length=14, max_length=256)
+    totp: str = Field(pattern=r"^\d{6}$")
+
+
+class ProfileRequest(BaseModel):
+    display_name: str = Field(min_length=1, max_length=80)
+
+
+class TotpResetRequest(BaseModel):
     password: str = Field(min_length=1, max_length=256)
     totp: str = Field(pattern=r"^\d{6}$")
 
@@ -200,6 +265,76 @@ def api_unban(payload: Fail2banRequest, request: Request, session: Session = Dep
     _csrf(request, session)
     try: return _action_response(unban_ip(payload.jail, payload.ip, session.username))
     except ActionError as exc: raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+
+@app.get("/api/profile")
+def get_profile(session: Session = Depends(require_session)) -> dict[str, Any]:
+    profile = _load_profile()
+    return {"username": session.username, "display_name": profile.get("display_name", session.username), "avatar": "/api/profile/avatar", "two_factor": bool(settings.totp_secret), "session_minutes": settings.session_minutes}
+
+
+@app.put("/api/profile")
+def update_profile(payload: ProfileRequest, request: Request, session: Session = Depends(require_session)) -> dict[str, Any]:
+    _csrf(request, session)
+    profile = _load_profile(); profile["display_name"] = payload.display_name.strip(); _save_profile(profile)
+    return {"ok": True}
+
+
+@app.get("/api/profile/avatar")
+def profile_avatar(session: Session = Depends(require_session)) -> Response:
+    path = AVATAR_FILE if AVATAR_FILE.exists() else STATIC_DIR / "favicon.png"
+    return FileResponse(path, media_type="image/png", headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/profile/avatar")
+async def upload_avatar(request: Request, avatar: UploadFile = File(...), session: Session = Depends(require_session)) -> dict[str, Any]:
+    _csrf(request, session)
+    if avatar.content_type not in {"image/png", "image/jpeg", "image/webp"}:
+        raise HTTPException(status_code=400, detail="Поддерживаются PNG, JPEG и WEBP")
+    data = await avatar.read(2 * 1024 * 1024 + 1)
+    if len(data) > 2 * 1024 * 1024: raise HTTPException(status_code=400, detail="Файл больше 2 МБ")
+    try:
+        from PIL import Image
+        with Image.open(__import__("io").BytesIO(data)) as image:
+            image = image.convert("RGBA"); image.thumbnail((512, 512))
+            PROFILE_DIR.mkdir(parents=True, exist_ok=True); image.save(AVATAR_FILE, "PNG")
+            os.chmod(AVATAR_FILE, 0o600)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Некорректное изображение") from exc
+    return {"ok": True}
+
+
+@app.post("/api/profile/password")
+def change_password(payload: PasswordChangeRequest, request: Request, session: Session = Depends(require_session)) -> dict[str, Any]:
+    _csrf(request, session)
+    from app.security import verify_totp
+    if not verify_password(settings.password_hash, payload.current_password) or not verify_totp(settings.totp_secret, payload.totp):
+        raise HTTPException(status_code=401, detail="Текущий пароль или код 2FA неверен")
+    if not (re.search(r"[a-z]", payload.new_password) and re.search(r"[A-Z]", payload.new_password) and re.search(r"\d", payload.new_password) and re.search(r"[^A-Za-z0-9]", payload.new_password)):
+        raise HTTPException(status_code=400, detail="Пароль должен содержать строчные и прописные буквы, цифру и спецсимвол")
+    new_hash = hash_password(payload.new_password); _replace_env_value("SCOUT_PASSWORD_HASH", new_hash); update_password_hash(new_hash)
+    delete_all_sessions_except(request.cookies.get("scout_session"))
+    return {"ok": True}
+
+
+@app.post("/api/profile/2fa/reset")
+def reset_2fa(payload: TotpResetRequest, request: Request, session: Session = Depends(require_session)) -> dict[str, Any]:
+    _csrf(request, session)
+    from app.security import verify_totp
+    if not verify_password(settings.password_hash, payload.password) or not verify_totp(settings.totp_secret, payload.totp):
+        raise HTTPException(status_code=401, detail="Пароль или текущий код 2FA неверен")
+    secret = generate_totp_secret(); _replace_env_value("SCOUT_TOTP_SECRET", secret); update_totp_secret(secret)
+    delete_all_sessions_except(request.cookies.get("scout_session"))
+    return {"ok": True, "secret": secret, "uri": provisioning_uri(secret, settings.username, settings.totp_issuer)}
+
+
+@app.get("/api/profile/logs")
+def download_logs(session: Session = Depends(require_session)) -> StreamingResponse:
+    result = subprocess.run(["journalctl", "-u", "scout-easy", "--since", "-24 hours", "--no-pager", "-o", "short-iso"], text=True, capture_output=True, timeout=15, check=False)
+    content = result.stdout or result.stderr or "Журнал пуст\n"
+    filename = f"scout-easy-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.log"
+    return StreamingResponse(iter([content.encode("utf-8")]), media_type="text/plain; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
 @app.get("/login")

@@ -156,3 +156,21 @@ def require_session(request: Request, scout_session: str | None = Cookie(default
             raise HTTPException(status_code=401, detail="Session address changed")
         session.expires_at = time.time() + settings.session_minutes * 60
         return session
+
+
+def update_password_hash(new_hash: str) -> None:
+    object.__setattr__(settings, "password_hash", new_hash)
+
+
+def update_totp_secret(new_secret: str) -> None:
+    object.__setattr__(settings, "totp_secret", new_secret)
+
+
+def delete_all_sessions_except(session_id: str | None = None) -> None:
+    with _sessions_lock:
+        if session_id and session_id in _sessions:
+            current = _sessions[session_id]
+            _sessions.clear()
+            _sessions[session_id] = current
+        else:
+            _sessions.clear()
