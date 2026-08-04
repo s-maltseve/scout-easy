@@ -1,7 +1,7 @@
 [project]
 name = "scout-easy"
-version = "0.1.0"
-description = "Lightweight read-only Linux security dashboard"
+version = "0.3.0"
+description = "Lightweight Linux security monitoring and administration dashboard"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
