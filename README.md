@@ -1,125 +1,117 @@
 # Scout-Easy
 
-Lightweight, read-only Linux security dashboard for a single Debian/Ubuntu server.
+Scout-Easy — это легковесная self-hosted панель мониторинга безопасности Linux-серверов.
 
-## What it shows
+Проект создан для того, чтобы в одном месте отображать всё, что важно администратору: активные SSH-подключения, попытки входа, состояние Fail2Ban, сетевые соединения, процессы и системные ресурсы.
 
-- active login/SSH sessions;
-- successful and failed SSH authentication events from systemd journal;
-- Fail2ban status, jails and banned addresses;
-- active TCP/UDP connections, PIDs and process names;
-- CPU, RAM, disk, load and uptime;
-- top processes and basic warnings.
+Главная цель проекта — предоставить простой, быстрый и понятный инструмент без необходимости разворачивать тяжёлые SIEM-системы.
 
-Scout-Easy 0.1.0 **does not change firewall rules, terminate sessions or modify Fail2ban**. The first release is intentionally read-only.
+---
 
-## Supported systems
+## Возможности
 
-- Debian 12+
-- Ubuntu 22.04+
-- Python 3.11+
-- systemd
+- 🔐 Активные SSH-сессии
+- 🚫 Мониторинг Fail2Ban
+- 🌐 Просмотр сетевых соединений
+- 📊 CPU, RAM, Disk, Uptime
+- 📜 История входов SSH
+- 🛡 Мониторинг Firewall (в разработке)
+- ⚡ Минимальное потребление ресурсов
+- 🖥 Современный Web UI
+- 🔒 Полностью self-hosted
 
-Other Linux distributions may work when installed manually.
+---
 
-## Quick installation from GitHub
+## Почему Scout-Easy?
+
+Большинство систем мониторинга безопасности рассчитаны на корпоративную инфраструктуру и требуют большого количества ресурсов.
+
+Scout-Easy создаётся как лёгкое решение для:
+
+- домашних серверов;
+- VPS;
+- небольших компаний;
+- self-hosted инфраструктуры;
+- DevOps и системных администраторов.
+
+После установки пользователь сразу получает понятную веб-панель, отображающую состояние сервера в режиме реального времени.
+
+---
+
+## Установка
 
 ```bash
-git clone https://github.com/YOUR-USERNAME/scout-easy.git
+git clone https://github.com/s-maltseve/scout-easy.git
 cd scout-easy
 sudo bash install.sh
 ```
 
-The installer generates a random password and binds the service to `127.0.0.1:8765`.
+После установки открой браузер:
 
-Open it safely through an SSH tunnel:
-
-```bash
-ssh -L 8765:127.0.0.1:8765 your-user@your-server
+```
+http://SERVER_IP:8765
 ```
 
-Then visit:
+---
 
-```text
-http://127.0.0.1:8765
-```
+## Планируемые возможности
 
-## Configuration
+- Управление Fail2Ban
+- Управление Firewall
+- Telegram-уведомления
+- Discord-уведомления
+- Мониторинг нескольких серверов
+- Карта атак
+- GeoIP
+- Мониторинг Docker
+- Проверка целостности файлов
+- Обнаружение подозрительных процессов
+- Уведомления о новых SSH-подключениях
+- REST API
+- Reverse Proxy (Nginx/Caddy)
+- Тёмная тема
 
-Configuration is stored at:
-
-```text
-/etc/scout-easy/scout-easy.env
-```
-
-Example:
-
-```env
-SCOUT_USERNAME=admin
-SCOUT_PASSWORD=use-a-long-random-password
-SCOUT_AUTH_ENABLED=true
-SCOUT_BIND_HOST=127.0.0.1
-SCOUT_BIND_PORT=8765
-SCOUT_REFRESH_SECONDS=5
-SCOUT_MAX_CONNECTIONS=250
-SCOUT_MAX_EVENTS=100
-```
-
-After editing:
-
-```bash
-sudo systemctl restart scout-easy
-```
-
-## Service management
-
-```bash
-sudo systemctl status scout-easy
-sudo journalctl -u scout-easy -f
-sudo systemctl restart scout-easy
-```
-
-## Development
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e '.[dev]'
-export SCOUT_AUTH_ENABLED=false
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8765
-```
-
-API documentation:
-
-```text
-http://127.0.0.1:8765/api/docs
-```
-
-Run tests:
-
-```bash
-pytest
-ruff check .
-```
-
-## Security notes
-
-- Keep the default loopback binding and use an SSH tunnel, VPN, or authenticated reverse proxy.
-- Do not expose port 8765 directly to the public internet.
-- The service currently runs as root because process-to-connection mapping, journal access and Fail2ban inspection often require elevated permissions.
-- The systemd unit applies several sandboxing restrictions and the application exposes no write actions.
-- HTTP Basic credentials are only safe over an encrypted tunnel or HTTPS.
+---
 
 ## Roadmap
 
-- configurable alert rules;
-- Telegram notifications;
-- persistent event history;
-- nftables/UFW module with narrowly scoped privileged helper;
-- multi-server hub and agent architecture;
-- GeoIP enrichment;
-- package/release installation without Git.
+### v0.1
 
-## License
+- [x] Web UI
+- [x] SSH Sessions
+- [x] System Information
+- [x] Network Connections
+- [x] Fail2Ban Status
 
-MIT
+### v0.2
+
+- [ ] Firewall Management
+- [ ] Live Events
+- [ ] GeoIP
+- [ ] Telegram Notifications
+
+### v0.3
+
+- [ ] Multi Server Support
+- [ ] Docker Monitoring
+- [ ] Alert Rules
+
+---
+
+## Лицензия
+
+MIT License
+
+---
+
+## Вклад в проект
+
+Pull Request'ы, идеи и предложения приветствуются.
+
+Если вы нашли ошибку — создайте Issue.
+
+---
+
+## Автор
+
+Разрабатывается сообществом Open Source.
