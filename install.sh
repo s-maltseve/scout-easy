@@ -13,33 +13,101 @@ rsync -a --delete --exclude .git --exclude .venv --exclude __pycache__ --exclude
 [[ -x "$INSTALL_DIR/.venv/bin/python3" ]] || python3 -m venv "$INSTALL_DIR/.venv"
 "$INSTALL_DIR/.venv/bin/pip" install --upgrade pip
 "$INSTALL_DIR/.venv/bin/pip" install -r "$INSTALL_DIR/requirements.txt"
-if [[ ! -f "$CONFIG_DIR/scout-easy.env" ]]; then
- readarray -t G < <(python3 - <<'PY'
-import secrets,string
-r=secrets.SystemRandom(); user='scout-'+''.join(r.choice(string.ascii_lowercase+string.digits) for _ in range(12))
-def strong(n=32):
- g=[string.ascii_lowercase,string.ascii_uppercase,string.digits,'!@#$%^&*_-+=']; a=[r.choice(x) for x in g]+[r.choice(''.join(g)) for _ in range(n-len(g))]; r.shuffle(a); return ''.join(a)
-print(user); print(strong()); print(strong(48))
-PY
- )
- cat > "$CONFIG_DIR/scout-easy.env" <<ENV
-SCOUT_USERNAME='${G[0]}'
-SCOUT_PASSWORD='${G[1]}'
+ENV_FILE="$CONFIG_DIR/scout-easy.env"
+
+generate_username() {
+ python3 - <<'PYGEN'
+import secrets
+import string
+alphabet = string.ascii_lowercase + string.digits
+print("scout-" + "".join(secrets.choice(alphabet) for _ in range(12)))
+PYGEN
+}
+
+generate_secret() {
+ local length="${1:-48}"
+ python3 - "$length" <<'PYGEN'
+import secrets
+import string
+import sys
+length = int(sys.argv[1])
+special = "!@#$%^&*_-+=:"
+groups = [string.ascii_lowercase, string.ascii_uppercase, string.digits, special]
+alphabet = "".join(groups)
+while True:
+    chars = [secrets.choice(group) for group in groups]
+    chars.extend(secrets.choice(alphabet) for _ in range(length - len(chars)))
+    secrets.SystemRandom().shuffle(chars)
+    value = "".join(chars)
+    if all(any(ch in group for ch in value) for group in groups):
+        print(value)
+        break
+PYGEN
+}
+
+read_env_value() {
+ local key="$1"
+ [[ -f "$ENV_FILE" ]] || return 0
+ python3 - "$ENV_FILE" "$key" <<'PYREAD'
+from pathlib import Path
+import sys
+path, key = Path(sys.argv[1]), sys.argv[2]
+for raw in path.read_text(errors="replace").splitlines():
+    line = raw.strip()
+    if not line or line.startswith("#") or "=" not in line:
+        continue
+    name, value = line.split("=", 1)
+    if name.strip() != key:
+        continue
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        value = value[1:-1]
+    print(value)
+    break
+PYREAD
+}
+
+SCOUT_USERNAME="$(read_env_value SCOUT_USERNAME)"
+SCOUT_PASSWORD="$(read_env_value SCOUT_PASSWORD)"
+SCOUT_ACTION_TOKEN="$(read_env_value SCOUT_ACTION_TOKEN)"
+SCOUT_ACTIONS_ENABLED="$(read_env_value SCOUT_ACTIONS_ENABLED)"
+
+[[ -n "$SCOUT_USERNAME" ]] || SCOUT_USERNAME="$(generate_username)"
+[[ -n "$SCOUT_PASSWORD" ]] || SCOUT_PASSWORD="$(generate_secret 40)"
+[[ -n "$SCOUT_ACTION_TOKEN" ]] || SCOUT_ACTION_TOKEN="$(generate_secret 64)"
+[[ -n "$SCOUT_ACTIONS_ENABLED" ]] || SCOUT_ACTIONS_ENABLED=true
+
+# Перезаписываем конфигурацию атомарно: старые секреты сохраняются,
+# отсутствующие или пустые значения генерируются автоматически.
+TMP_ENV="$(mktemp)"
+cat > "$TMP_ENV" <<ENV
+SCOUT_USERNAME='$SCOUT_USERNAME'
+SCOUT_PASSWORD='$SCOUT_PASSWORD'
 SCOUT_AUTH_ENABLED=true
-SCOUT_ACTIONS_ENABLED=true
-SCOUT_ACTION_TOKEN='${G[2]}'
-SCOUT_ALLOWED_IPS=
-SCOUT_BIND_HOST=127.0.0.1
-SCOUT_BIND_PORT=8765
-SCOUT_REFRESH_SECONDS=5
-SCOUT_MAX_CONNECTIONS=250
-SCOUT_MAX_EVENTS=100
-SCOUT_LOGIN_ATTEMPTS=8
-SCOUT_LOGIN_WINDOW_SECONDS=300
+SCOUT_ACTIONS_ENABLED=$SCOUT_ACTIONS_ENABLED
+SCOUT_ACTION_TOKEN='$SCOUT_ACTION_TOKEN'
+SCOUT_ALLOWED_IPS=$(read_env_value SCOUT_ALLOWED_IPS)
+SCOUT_BIND_HOST=$(read_env_value SCOUT_BIND_HOST)
+SCOUT_BIND_PORT=$(read_env_value SCOUT_BIND_PORT)
+SCOUT_REFRESH_SECONDS=$(read_env_value SCOUT_REFRESH_SECONDS)
+SCOUT_MAX_CONNECTIONS=$(read_env_value SCOUT_MAX_CONNECTIONS)
+SCOUT_MAX_EVENTS=$(read_env_value SCOUT_MAX_EVENTS)
+SCOUT_LOGIN_ATTEMPTS=$(read_env_value SCOUT_LOGIN_ATTEMPTS)
+SCOUT_LOGIN_WINDOW_SECONDS=$(read_env_value SCOUT_LOGIN_WINDOW_SECONDS)
 ENV
- chmod 600 "$CONFIG_DIR/scout-easy.env"
- echo "Логин: ${G[0]}"; echo "Пароль: ${G[1]}"; echo "Admin token: ${G[2]}"
-else echo "Существующий конфиг сохранён"; fi
+
+# Значения по умолчанию для параметров, отсутствовавших в старом конфиге.
+sed -i \
+ -e 's/^SCOUT_BIND_HOST=$/SCOUT_BIND_HOST=127.0.0.1/' \
+ -e 's/^SCOUT_BIND_PORT=$/SCOUT_BIND_PORT=8765/' \
+ -e 's/^SCOUT_REFRESH_SECONDS=$/SCOUT_REFRESH_SECONDS=5/' \
+ -e 's/^SCOUT_MAX_CONNECTIONS=$/SCOUT_MAX_CONNECTIONS=250/' \
+ -e 's/^SCOUT_MAX_EVENTS=$/SCOUT_MAX_EVENTS=100/' \
+ -e 's/^SCOUT_LOGIN_ATTEMPTS=$/SCOUT_LOGIN_ATTEMPTS=8/' \
+ -e 's/^SCOUT_LOGIN_WINDOW_SECONDS=$/SCOUT_LOGIN_WINDOW_SECONDS=300/' \
+ "$TMP_ENV"
+install -m 0600 "$TMP_ENV" "$ENV_FILE"
+rm -f "$TMP_ENV"
 install -m 0644 "$INSTALL_DIR/systemd/scout-easy.service" /etc/systemd/system/scout-easy.service
 install -m 0755 "$INSTALL_DIR/scout-easy-manager.sh" /usr/local/bin/scout-easy
 systemctl daemon-reload; systemctl enable "$SERVICE" nginx >/dev/null; systemctl restart "$SERVICE" nginx
@@ -80,5 +148,9 @@ if ! $NON_INTERACTIVE && [[ -t 0 ]]; then
  fi
 fi
 sleep 1; systemctl is-active --quiet "$SERVICE" || { journalctl -u "$SERVICE" -n 50 --no-pager; exit 1; }
-source "$CONFIG_DIR/scout-easy.env"
-echo; echo 'SCOUT-EASY установлен.'; echo "Логин: $SCOUT_USERNAME"; echo "Пароль: $SCOUT_PASSWORD"; echo "Admin token: $SCOUT_ACTION_TOKEN"; echo 'Менеджер: sudo scout-easy'
+echo
+echo 'SCOUT-EASY установлен.'
+echo "Логин: $SCOUT_USERNAME"
+echo "Пароль: $SCOUT_PASSWORD"
+echo "Admin token: $SCOUT_ACTION_TOKEN"
+echo 'Менеджер: sudo scout-easy' 

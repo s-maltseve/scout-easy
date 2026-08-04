@@ -5,12 +5,29 @@ SERVICE=scout-easy.service
 REPO_DIR=${SCOUT_REPO_DIR:-$HOME/scout-easy}
 need_root(){ [[ $EUID -eq 0 ]] || exec sudo "$0" "$@"; }
 show_env(){ [[ -f "$ENV_FILE" ]] && grep -E '^(SCOUT_USERNAME|SCOUT_PASSWORD|SCOUT_ACTION_TOKEN|SCOUT_BIND_HOST|SCOUT_BIND_PORT|SCOUT_ACTIONS_ENABLED)=' "$ENV_FILE" || echo 'Конфигурация не найдена'; }
-reset_secret(){ local key=$1 value; value=$(python3 - <<'PY'
-import secrets,string
-r=secrets.SystemRandom(); groups=[string.ascii_lowercase,string.ascii_uppercase,string.digits,'!@#$%^&*_-+=']
-a=[r.choice(g) for g in groups]+[r.choice(''.join(groups)) for _ in range(28)]; r.shuffle(a); print(''.join(a))
+reset_secret(){
+ local key=$1 length=40 value
+ [[ $key == SCOUT_ACTION_TOKEN ]] && length=64
+ value=$(python3 - "$length" <<'PY'
+import secrets,string,sys
+length=int(sys.argv[1]); special='!@#$%^&*_-+=:'
+groups=[string.ascii_lowercase,string.ascii_uppercase,string.digits,special]
+alphabet=''.join(groups)
+chars=[secrets.choice(g) for g in groups]
+chars += [secrets.choice(alphabet) for _ in range(length-len(chars))]
+secrets.SystemRandom().shuffle(chars)
+print(''.join(chars))
 PY
-); sed -i "s|^${key}=.*|${key}='${value}'|" "$ENV_FILE"; chmod 600 "$ENV_FILE"; systemctl restart "$SERVICE"; echo "$key=$value"; }
+ )
+ if grep -q "^${key}=" "$ENV_FILE"; then
+  sed -i "s|^${key}=.*|${key}='${value}'|" "$ENV_FILE"
+ else
+  printf "%s='%s'\n" "$key" "$value" >> "$ENV_FILE"
+ fi
+ chmod 600 "$ENV_FILE"
+ systemctl restart "$SERVICE"
+ echo "$key=$value"
+}
 while true; do
 cat <<'MENU'
 
