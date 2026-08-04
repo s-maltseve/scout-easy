@@ -9,15 +9,30 @@ INT_RE = re.compile(r"(?P<key>Currently failed|Total failed|Currently banned|Tot
 BAN_RE = re.compile(r"Banned IP list:\s*(?P<ips>.*)")
 
 
+def _get_jail_value(jail: str, key: str, default=None):
+    result = run_command(["fail2ban-client", "get", jail, key], timeout=4)
+    if not result.ok:
+        return default
+    value = result.stdout.strip()
+    if key in {"bantime", "findtime", "maxretry"}:
+        try:
+            return int(value.splitlines()[-1].strip())
+        except (ValueError, IndexError):
+            return default
+    return value or default
+
+
 def collect_fail2ban() -> dict:
     if not command_exists("fail2ban-client"):
-        return {"available": False, "running": False, "jails": [], "error": "not installed"}
+        return {"available": False, "running": False, "responsive": False, "jails": [], "error": "not installed"}
 
+    ping = run_command(["fail2ban-client", "ping"], timeout=4)
     status = run_command(["fail2ban-client", "status"], timeout=4)
     if not status.ok:
         return {
             "available": True,
             "running": False,
+            "responsive": ping.ok,
             "jails": [],
             "error": status.stderr or status.stdout or "fail2ban unavailable",
         }
@@ -32,11 +47,17 @@ def collect_fail2ban() -> dict:
         detail = run_command(["fail2ban-client", "status", jail], timeout=4)
         info = {
             "name": jail,
+            "healthy": detail.ok,
             "currently_failed": 0,
             "total_failed": 0,
             "currently_banned": 0,
             "total_banned": 0,
             "banned_ips": [],
+            "bantime": _get_jail_value(jail, "bantime", 0),
+            "findtime": _get_jail_value(jail, "findtime", 0),
+            "maxretry": _get_jail_value(jail, "maxretry", 0),
+            "filter": _get_jail_value(jail, "failregex", "настроен"),
+            "actions": _get_jail_value(jail, "actions", ""),
         }
         if detail.ok:
             for item in INT_RE.finditer(detail.stdout):
@@ -49,4 +70,10 @@ def collect_fail2ban() -> dict:
             info["error"] = detail.stderr or detail.stdout
         jails.append(info)
 
-    return {"available": True, "running": True, "jails": jails, "error": None}
+    return {
+        "available": True,
+        "running": True,
+        "responsive": ping.ok and "pong" in ping.stdout.lower(),
+        "jails": jails,
+        "error": None,
+    }

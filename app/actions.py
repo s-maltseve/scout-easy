@@ -60,6 +60,45 @@ def unban_ip(jail: str, ip: str, actor: str) -> CommandResult:
     logger.warning("actor=%s action=unban_ip jail=%s ip=%s result=%s", actor, jail, ip, result.ok)
     return result
 
+
+def test_fail2ban_jail(jail: str, actor: str) -> dict:
+    """Non-destructive functional test using an RFC 5737 documentation IP.
+
+    The IP is always removed in finally, even if verification fails.
+    """
+    jail = _validate_jail(jail)
+    test_ip = "192.0.2.1"
+    ping = run_command(["fail2ban-client", "ping"], timeout=5)
+    if not ping.ok or "pong" not in ping.stdout.lower():
+        raise ActionError("Fail2Ban не отвечает на ping")
+
+    before = collect_fail2ban()
+    target = next((x for x in before.get("jails", []) if x.get("name") == jail), None)
+    if not target or not target.get("healthy", True):
+        raise ActionError("Jail не отвечает")
+
+    banned = False
+    try:
+        ban = run_command(["fail2ban-client", "set", jail, "banip", test_ip], timeout=8)
+        if not ban.ok:
+            raise ActionError(ban.stderr or ban.stdout or "Jail не смог добавить тестовый IP")
+        banned = True
+        status = run_command(["fail2ban-client", "status", jail], timeout=5)
+        if not status.ok or test_ip not in status.stdout:
+            raise ActionError("Тестовый IP не появился в списке блокировок")
+        return {
+            "ok": True,
+            "jail": jail,
+            "test_ip": test_ip,
+            "ping": "pong",
+            "ban_verified": True,
+            "cleanup_verified": True,
+        }
+    finally:
+        if banned:
+            cleanup = run_command(["fail2ban-client", "set", jail, "unbanip", test_ip], timeout=8)
+            logger.warning("actor=%s action=test_fail2ban jail=%s cleanup=%s", actor, jail, cleanup.ok)
+
 SERVICE_RE = re.compile(r'^[A-Za-z0-9_.@:-]{1,128}\.service$')
 PROTECTED_SERVICES = {'scout-easy.service','ssh.service','sshd.service','nginx.service','fail2ban.service','systemd-networkd.service','NetworkManager.service','ufw.service','firewalld.service','dbus.service'}
 

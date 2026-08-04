@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app import __version__
-from app.actions import ActionError, ban_ip, disconnect_ssh_session, unban_ip, service_action
+from app.actions import ActionError, ban_ip, disconnect_ssh_session, unban_ip, service_action, test_fail2ban_jail
 from app.collectors.fail2ban import collect_fail2ban
 from app.collectors.network import collect_connections
 from app.collectors.processes import collect_processes
@@ -141,6 +141,9 @@ class DisconnectRequest(BaseModel):
 class Fail2banRequest(BaseModel):
     jail: str = Field(pattern=r"^[A-Za-z0-9_.:-]{1,64}$")
     ip: str = Field(min_length=3, max_length=45)
+
+class Fail2banTestRequest(BaseModel):
+    jail: str = Field(pattern=r"^[A-Za-z0-9_.:-]{1,64}$")
 
 class ServiceActionRequest(BaseModel):
     unit: str = Field(pattern=r"^[A-Za-z0-9_.@:-]{1,128}\.service$")
@@ -298,6 +301,19 @@ def api_unban(payload: Fail2banRequest, request: Request, session: Session = Dep
     try:
         result=_action_response(unban_ip(payload.jail, payload.ip, session.username)); audit(session.username,client_ip(request),"fail2ban.unban",f"{payload.jail}:{payload.ip}"); return result
     except ActionError as exc: raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/actions/fail2ban/test")
+def api_test_fail2ban(payload: Fail2banTestRequest, request: Request, session: Session = Depends(require_session)) -> dict[str, Any]:
+    if not settings.actions_enabled: raise HTTPException(status_code=403, detail="Administrative actions are disabled")
+    _csrf(request, session)
+    try:
+        result = test_fail2ban_jail(payload.jail, session.username)
+        audit(session.username, client_ip(request), "fail2ban.test", payload.jail, details=result)
+        return result
+    except ActionError as exc:
+        audit(session.username, client_ip(request), "fail2ban.test_failed", payload.jail, details={"error": str(exc)})
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 
