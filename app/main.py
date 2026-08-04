@@ -12,12 +12,12 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFile, File
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app import __version__
-from app.actions import ActionError, ban_ip, disconnect_ssh_session, unban_ip
+from app.actions import ActionError, ban_ip, disconnect_ssh_session, unban_ip, service_action
 from app.collectors.fail2ban import collect_fail2ban
 from app.collectors.network import collect_connections
 from app.collectors.processes import collect_processes
@@ -25,6 +25,9 @@ from app.collectors.ssh import collect_auth_events, collect_sessions
 from app.collectors.system import collect_system
 from app.collectors.traffic import collect_traffic
 from app.collectors.users import collect_users
+from app.collectors.services import collect_services
+from app.alerts_engine import evaluate as evaluate_alerts
+from app.storage import init_db, add_traffic, traffic_history, audit, list_audit, list_alerts, resolve_alert, record_auth_activity, activity_heatmap, get_integrations, set_integration
 from app.config import settings
 from app.security import (
     Session,
@@ -85,6 +88,8 @@ def _replace_env_value(key: str, value: str) -> None:
     ENV_FILE.write_text("\n".join(output) + "\n", encoding="utf-8")
     os.chmod(ENV_FILE, 0o600)
 
+init_db()
+
 app = FastAPI(title=settings.app_name, version=__version__, docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
@@ -136,6 +141,18 @@ class Fail2banRequest(BaseModel):
     jail: str = Field(pattern=r"^[A-Za-z0-9_.:-]{1,64}$")
     ip: str = Field(min_length=3, max_length=45)
 
+class ServiceActionRequest(BaseModel):
+    unit: str = Field(pattern=r"^[A-Za-z0-9_.@:-]{1,128}\.service$")
+    operation: str = Field(pattern=r"^(start|stop|restart|enable|disable)$")
+
+class AlertResolveRequest(BaseModel):
+    note: str = Field(default='', max_length=500)
+
+class IntegrationRequest(BaseModel):
+    kind: str = Field(pattern=r"^(telegram|smtp|webhook|zabbix|prometheus|syslog)$")
+    enabled: bool = False
+    config: dict[str, Any] = Field(default_factory=dict)
+
 
 def _safe_section(name: str, collector: Callable[[], Any], fallback: Any) -> tuple[Any, dict[str, str] | None]:
     try:
@@ -177,8 +194,10 @@ def login(payload: LoginRequest, request: Request) -> Response:
         raise HTTPException(status_code=429, detail="Слишком много попыток входа")
     if not verify_credentials(payload.username, payload.password, payload.totp):
         record_failure(ip)
+        audit(payload.username, ip, "auth.login", result="failure")
         raise HTTPException(status_code=401, detail="Неверные данные входа или код 2FA")
     clear_failures(ip)
+    audit(payload.username, ip, "auth.login", result="success")
     session_id, session = create_session(payload.username, ip)
     response = JSONResponse({"ok": True, "csrf": session.csrf, "expires_in": settings.session_minutes * 60})
     response.set_cookie(
@@ -196,6 +215,7 @@ def login(payload: LoginRequest, request: Request) -> Response:
 @app.post("/api/auth/logout")
 def logout(request: Request, session: Session = Depends(require_session)) -> Response:
     _csrf(request, session)
+    audit(session.username, client_ip(request), "auth.logout")
     delete_session(request.cookies.get("scout_session"))
     response = JSONResponse({"ok": True})
     response.delete_cookie("scout_session", path="/")
@@ -226,28 +246,36 @@ def dashboard(session: Session = Depends(require_session)) -> dict[str, Any]:
     if error: errors.append(error)
     users, error = _safe_section("users", collect_users, {"users": [], "groups": []})
     if error: errors.append(error)
+    services, error = _safe_section("services", collect_services, {"services": []})
+    if error: errors.append(error)
 
     failed = sum(1 for event in auth_events if event.get("type") == "failure")
     succeeded = sum(1 for event in auth_events if event.get("type") == "success")
     banned = sum(int(jail.get("currently_banned", 0) or 0) for jail in fail2ban.get("jails", []))
+    record_auth_activity(succeeded, failed)
+    add_traffic(float(traffic.get("current", {}).get("recv_per_second", 0) or 0), float(traffic.get("current", {}).get("sent_per_second", 0) or 0), int(network.get("summary", {}).get("total", 0) or 0))
     warnings = [{"level": "warning", "title": f"Секция {item['section']} недоступна", "message": item["message"]} for item in errors]
     if not fail2ban.get("running"):
         warnings.append({"level": "info", "title": "Fail2ban неактивен", "message": fail2ban.get("error") or "Fail2ban не запущен."})
 
-    return {
+    payload = {
         "meta": {"name": settings.app_name, "version": __version__, "refresh_seconds": settings.refresh_seconds, "actions_enabled": settings.actions_enabled, "actor": session.username, "partial": bool(errors), "two_factor": True},
         "overview": {"ssh_sessions": len(sessions), "auth_failures": failed, "auth_successes": succeeded, "banned_ips": banned, "network_connections": network.get("summary", {}).get("total", 0), "linux_users": len(users.get("users", []))},
         "errors": errors, "warnings": warnings, "system": system,
         "ssh": {"sessions": sessions, "events": auth_events}, "fail2ban": fail2ban,
-        "network": network, "traffic": traffic, "processes": processes, "users": users,
+        "network": network, "traffic": traffic, "processes": processes, "users": users, "services": services,
     }
+    evaluate_alerts(payload)
+    payload["alerts_state"] = list_alerts(active_only=True, limit=50)
+    return payload
 
 
 @app.post("/api/actions/ssh/disconnect")
 def api_disconnect(payload: DisconnectRequest, request: Request, session: Session = Depends(require_session)) -> dict[str, Any]:
     if not settings.actions_enabled: raise HTTPException(status_code=403, detail="Administrative actions are disabled")
     _csrf(request, session)
-    try: return _action_response(disconnect_ssh_session(payload.tty, session.username))
+    try:
+        result=_action_response(disconnect_ssh_session(payload.tty, session.username)); audit(session.username,client_ip(request),"ssh.disconnect",payload.tty); return result
     except ActionError as exc: raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -255,7 +283,8 @@ def api_disconnect(payload: DisconnectRequest, request: Request, session: Sessio
 def api_ban(payload: Fail2banRequest, request: Request, session: Session = Depends(require_session)) -> dict[str, Any]:
     if not settings.actions_enabled: raise HTTPException(status_code=403, detail="Administrative actions are disabled")
     _csrf(request, session)
-    try: return _action_response(ban_ip(payload.jail, payload.ip, session.username))
+    try:
+        result=_action_response(ban_ip(payload.jail, payload.ip, session.username)); audit(session.username,client_ip(request),"fail2ban.ban",f"{payload.jail}:{payload.ip}"); return result
     except ActionError as exc: raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -263,9 +292,86 @@ def api_ban(payload: Fail2banRequest, request: Request, session: Session = Depen
 def api_unban(payload: Fail2banRequest, request: Request, session: Session = Depends(require_session)) -> dict[str, Any]:
     if not settings.actions_enabled: raise HTTPException(status_code=403, detail="Administrative actions are disabled")
     _csrf(request, session)
-    try: return _action_response(unban_ip(payload.jail, payload.ip, session.username))
+    try:
+        result=_action_response(unban_ip(payload.jail, payload.ip, session.username)); audit(session.username,client_ip(request),"fail2ban.unban",f"{payload.jail}:{payload.ip}"); return result
     except ActionError as exc: raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+
+
+@app.get("/api/history/traffic")
+def api_traffic_history(range_seconds: int = 3600, session: Session = Depends(require_session)) -> dict[str, Any]:
+    return {"samples": traffic_history(range_seconds)}
+
+@app.get("/api/activity")
+def api_activity(days: int = 120, session: Session = Depends(require_session)) -> dict[str, Any]:
+    return {"days": activity_heatmap(max(30,min(days,365)))}
+
+@app.get("/api/audit")
+def api_audit(limit: int = 300, session: Session = Depends(require_session)) -> dict[str, Any]:
+    return {"events": list_audit(limit)}
+
+@app.get("/api/alerts")
+def api_alerts(active_only: bool = False, session: Session = Depends(require_session)) -> dict[str, Any]:
+    return {"alerts": list_alerts(active_only=active_only)}
+
+@app.post("/api/alerts/{alert_id}/resolve")
+def api_resolve_alert(alert_id: int, payload: AlertResolveRequest, request: Request, session: Session = Depends(require_session)) -> dict[str, Any]:
+    _csrf(request, session)
+    if not resolve_alert(alert_id, session.username, payload.note):
+        raise HTTPException(status_code=404, detail="Тревога не найдена")
+    audit(session.username,client_ip(request),"alert.resolve",str(alert_id),details={"note":payload.note})
+    return {"ok": True}
+
+@app.get("/api/integrations")
+def api_integrations(session: Session = Depends(require_session)) -> dict[str, Any]:
+    return {"integrations": get_integrations()}
+
+@app.put("/api/integrations")
+def api_update_integration(payload: IntegrationRequest, request: Request, session: Session = Depends(require_session)) -> dict[str, Any]:
+    _csrf(request, session)
+    safe_config={k:v for k,v in payload.config.items() if len(str(k))<80 and len(str(v))<2000}
+    set_integration(payload.kind,payload.enabled,safe_config)
+    audit(session.username,client_ip(request),"integration.update",payload.kind,details={"enabled":payload.enabled})
+    return {"ok":True}
+
+@app.post("/api/actions/services")
+def api_service_action(payload: ServiceActionRequest, request: Request, session: Session = Depends(require_session)) -> dict[str, Any]:
+    if not settings.actions_enabled: raise HTTPException(status_code=403, detail="Administrative actions are disabled")
+    _csrf(request, session)
+    try:
+        result=_action_response(service_action(payload.unit,payload.operation,session.username))
+        audit(session.username,client_ip(request),f"service.{payload.operation}",payload.unit)
+        return result
+    except ActionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/metrics", response_class=PlainTextResponse)
+def prometheus_metrics() -> str:
+    alerts=list_alerts(active_only=True,limit=1000)
+    by={"critical":0,"high":0,"warning":0,"info":0}
+    for item in alerts: by[item.get("severity","info")]=by.get(item.get("severity","info"),0)+1
+    latest=traffic_history(900,limit=1)
+    sample=latest[-1] if latest else {"rx_bps":0,"tx_bps":0,"connections":0}
+    lines=[
+      "# HELP scout_alerts_active Active SCOUT-EASY alerts",
+      "# TYPE scout_alerts_active gauge",
+      f"scout_alerts_active {len(alerts)}",
+      *[f'scout_alerts_severity{{severity="{k}"}} {v}' for k,v in by.items()],
+      f"scout_network_rx_bytes_per_second {float(sample.get('rx_bps',0) or 0)}",
+      f"scout_network_tx_bytes_per_second {float(sample.get('tx_bps',0) or 0)}",
+      f"scout_network_connections {int(sample.get('connections',0) or 0)}",
+    ]
+    return "\n".join(lines)+"\n"
+
+@app.get("/api/v1/servers")
+def api_v1_servers(session: Session = Depends(require_session)) -> dict[str,Any]:
+    system=collect_system()
+    return {"servers":[{"id":"local","name":system.get("hostname","local"),"status":"online","mode":"embedded"}],"agent_enrollment":"planned"}
+
+@app.get("/api/v1/alerts")
+def api_v1_alerts(session: Session = Depends(require_session)) -> dict[str,Any]:
+    return {"alerts":list_alerts(active_only=False)}
 
 
 @app.get("/api/profile")
@@ -283,7 +389,7 @@ def update_profile(payload: ProfileRequest, request: Request, session: Session =
 
 @app.get("/api/profile/avatar")
 def profile_avatar(session: Session = Depends(require_session)) -> Response:
-    path = AVATAR_FILE if AVATAR_FILE.exists() else STATIC_DIR / "favicon.png"
+    path = AVATAR_FILE if AVATAR_FILE.exists() else STATIC_DIR / "default-avatar.png"
     return FileResponse(path, media_type="image/png", headers={"Cache-Control": "no-store"})
 
 

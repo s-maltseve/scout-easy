@@ -12,7 +12,8 @@ NON_INTERACTIVE=false
 
 apt-get update
 apt-get install -y python3 python3-venv python3-pip rsync curl nginx qrencode
-mkdir -p "$INSTALL_DIR" "$CONFIG_DIR"
+mkdir -p "$INSTALL_DIR" "$CONFIG_DIR" /var/lib/scout-easy
+chmod 700 /var/lib/scout-easy
 systemctl stop "$SERVICE" 2>/dev/null || true
 rsync -a --delete --exclude .git --exclude .venv --exclude __pycache__ --exclude .pytest_cache "$SOURCE_DIR/" "$INSTALL_DIR/"
 [[ -x "$INSTALL_DIR/.venv/bin/python3" ]] || python3 -m venv "$INSTALL_DIR/.venv"
@@ -89,6 +90,8 @@ if [[ -z "$SCOUT_TOTP_SECRET" ]]; then
 fi
 
 value_or_default(){ local key=$1 def=$2 value; value="$(read_env_value "$key")"; printf '%s' "${value:-$def}"; }
+SESSION_MINUTES="$(value_or_default SCOUT_SESSION_MINUTES 480)"
+[[ "$SESSION_MINUTES" == "30" ]] && SESSION_MINUTES=480
 TMP_ENV=$(mktemp)
 cat > "$TMP_ENV" <<ENV
 SCOUT_USERNAME='$SCOUT_USERNAME'
@@ -104,7 +107,7 @@ SCOUT_MAX_CONNECTIONS=$(value_or_default SCOUT_MAX_CONNECTIONS 250)
 SCOUT_MAX_EVENTS=$(value_or_default SCOUT_MAX_EVENTS 100)
 SCOUT_LOGIN_ATTEMPTS=$(value_or_default SCOUT_LOGIN_ATTEMPTS 5)
 SCOUT_LOGIN_WINDOW_SECONDS=$(value_or_default SCOUT_LOGIN_WINDOW_SECONDS 600)
-SCOUT_SESSION_MINUTES=$(value_or_default SCOUT_SESSION_MINUTES 30)
+SCOUT_SESSION_MINUTES=$SESSION_MINUTES
 SCOUT_SECURE_COOKIE=$(value_or_default SCOUT_SECURE_COOKIE true)
 ENV
 install -m 0600 "$TMP_ENV" "$ENV_FILE"
@@ -154,7 +157,7 @@ print(provisioning_uri(sys.argv[1], sys.argv[2]))
 PY
 )"
 echo
-echo 'SCOUT-EASY 0.7.0 установлен.'
+echo 'SCOUT-EASY 0.8.0 установлен.'
 echo "Логин: $SCOUT_USERNAME"
 if [[ -n "$NEW_PASSWORD" ]]; then echo "Пароль: $NEW_PASSWORD"; else echo 'Пароль сохранён. Для смены: sudo scout-easy'; fi
 echo 'Добавь 2FA в Aegis, 2FAS, Bitwarden или Google Authenticator:'

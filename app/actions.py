@@ -59,3 +59,20 @@ def unban_ip(jail: str, ip: str, actor: str) -> CommandResult:
     result = run_command(["fail2ban-client", "set", jail, "unbanip", ip], timeout=8)
     logger.warning("actor=%s action=unban_ip jail=%s ip=%s result=%s", actor, jail, ip, result.ok)
     return result
+
+SERVICE_RE = re.compile(r'^[A-Za-z0-9_.@:-]{1,128}\.service$')
+PROTECTED_SERVICES = {'scout-easy.service','ssh.service','sshd.service','nginx.service','fail2ban.service','systemd-networkd.service','NetworkManager.service','ufw.service','firewalld.service','dbus.service'}
+
+def service_action(unit: str, operation: str, actor: str) -> CommandResult:
+    if not SERVICE_RE.fullmatch(unit):
+        raise ActionError('Некорректное имя systemd-службы')
+    if operation not in {'start','stop','restart','enable','disable'}:
+        raise ActionError('Недопустимая операция')
+    if unit in PROTECTED_SERVICES and operation in {'stop','disable'}:
+        raise ActionError('Критическая служба защищена от отключения')
+    exists = run_command(['systemctl','show',unit,'--property=LoadState','--value'],timeout=5)
+    if not exists.ok or exists.stdout.strip() in {'','not-found'}:
+        raise ActionError('Служба не найдена')
+    result=run_command(['systemctl',operation,unit],timeout=20)
+    logger.warning('actor=%s action=service_%s unit=%s result=%s',actor,operation,unit,result.ok)
+    return result
