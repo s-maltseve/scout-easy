@@ -1,5 +1,5 @@
 [Unit]
-Description=Scout-Easy Linux Security Dashboard
+Description=SCOUT-EASY Linux Security Dashboard
 After=network-online.target
 Wants=network-online.target
 

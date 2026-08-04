@@ -18,10 +18,14 @@ python3 -m venv "$INSTALL_DIR/.venv"
 
 if [[ ! -f "$CONFIG_DIR/scout-easy.env" ]]; then
   PASSWORD=$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')
+  ACTION_TOKEN=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')
   cat > "$CONFIG_DIR/scout-easy.env" <<ENV
 SCOUT_USERNAME=admin
 SCOUT_PASSWORD=$PASSWORD
 SCOUT_AUTH_ENABLED=true
+SCOUT_ACTIONS_ENABLED=false
+SCOUT_ACTION_TOKEN=$ACTION_TOKEN
+SCOUT_ALLOWED_IPS=
 SCOUT_BIND_HOST=127.0.0.1
 SCOUT_BIND_PORT=8765
 SCOUT_REFRESH_SECONDS=5
@@ -39,7 +43,7 @@ systemctl daemon-reload
 systemctl enable --now scout-easy
 
 echo
-echo "Scout-Easy installed."
+echo "SCOUT-EASY installed."
 echo "Local URL: http://127.0.0.1:8765"
 echo "Recommended access: SSH tunnel: ssh -L 8765:127.0.0.1:8765 user@server"
 echo "Then open: http://127.0.0.1:8765"
