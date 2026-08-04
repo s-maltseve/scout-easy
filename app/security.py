@@ -17,6 +17,7 @@ from fastapi import Cookie, HTTPException, Request
 from app.config import settings
 
 _attempts: dict[str, deque[float]] = defaultdict(deque)
+_blocked_until: dict[str, float] = {}
 _attempt_lock = threading.Lock()
 _sessions_lock = threading.Lock()
 
@@ -97,7 +98,19 @@ def ip_allowed(value: str) -> bool:
     return False
 
 
+def blocked_seconds(ip: str) -> int:
+    now = time.time()
+    with _attempt_lock:
+        until = _blocked_until.get(ip, 0)
+        if until <= now:
+            _blocked_until.pop(ip, None)
+            return 0
+        return max(1, int(until - now))
+
+
 def is_rate_limited(ip: str) -> bool:
+    if blocked_seconds(ip):
+        return True
     now = time.monotonic()
     with _attempt_lock:
         attempts = _attempts[ip]
@@ -106,14 +119,24 @@ def is_rate_limited(ip: str) -> bool:
         return len(attempts) >= settings.login_attempts
 
 
-def record_failure(ip: str) -> None:
+def record_failure(ip: str) -> bool:
+    now = time.monotonic()
     with _attempt_lock:
-        _attempts[ip].append(time.monotonic())
+        attempts = _attempts[ip]
+        while attempts and attempts[0] < now - settings.login_window_seconds:
+            attempts.popleft()
+        attempts.append(now)
+        if len(attempts) >= settings.login_attempts:
+            _blocked_until[ip] = time.time() + settings.login_block_seconds
+            attempts.clear()
+            return True
+        return False
 
 
 def clear_failures(ip: str) -> None:
     with _attempt_lock:
         _attempts.pop(ip, None)
+        _blocked_until.pop(ip, None)
 
 
 def verify_credentials(username: str, password: str, code: str) -> bool:

@@ -29,8 +29,9 @@ class Settings:
     refresh_seconds: int = int(os.getenv("SCOUT_REFRESH_SECONDS", "5"))
     max_connections: int = int(os.getenv("SCOUT_MAX_CONNECTIONS", "250"))
     max_events: int = int(os.getenv("SCOUT_MAX_EVENTS", "100"))
-    login_attempts: int = int(os.getenv("SCOUT_LOGIN_ATTEMPTS", "5"))
+    login_attempts: int = int(os.getenv("SCOUT_LOGIN_ATTEMPTS", "3"))
     login_window_seconds: int = int(os.getenv("SCOUT_LOGIN_WINDOW_SECONDS", "600"))
+    login_block_seconds: int = int(os.getenv("SCOUT_LOGIN_BLOCK_SECONDS", "21600"))
     session_minutes: int = int(os.getenv("SCOUT_SESSION_MINUTES", "480"))
     secure_cookie: bool = _bool_env("SCOUT_SECURE_COOKIE", True)
 

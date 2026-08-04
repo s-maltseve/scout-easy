@@ -37,6 +37,7 @@ from app.security import (
     delete_session,
     ip_allowed,
     is_rate_limited,
+    blocked_seconds,
     record_failure,
     require_session,
     verify_credentials,
@@ -191,10 +192,12 @@ def login(payload: LoginRequest, request: Request) -> Response:
     if not ip_allowed(ip):
         raise HTTPException(status_code=403, detail="IP is not allowed")
     if is_rate_limited(ip):
-        raise HTTPException(status_code=429, detail="Слишком много попыток входа")
+        remaining = blocked_seconds(ip)
+        detail = f"IP заблокирован. Повторите через {max(1, remaining // 3600)} ч." if remaining else "Слишком много попыток входа"
+        raise HTTPException(status_code=429, detail=detail)
     if not verify_credentials(payload.username, payload.password, payload.totp):
-        record_failure(ip)
-        audit(payload.username, ip, "auth.login", result="failure")
+        blocked = record_failure(ip)
+        audit(payload.username, ip, "auth.login", result="blocked" if blocked else "failure", details={"blocked_seconds": settings.login_block_seconds if blocked else 0})
         raise HTTPException(status_code=401, detail="Неверные данные входа или код 2FA")
     clear_failures(ip)
     audit(payload.username, ip, "auth.login", result="success")
