@@ -11,11 +11,22 @@ NON_INTERACTIVE=false
 [[ ${1:-} == --non-interactive ]] && NON_INTERACTIVE=true
 
 apt-get update
-apt-get install -y python3 python3-venv python3-pip rsync curl nginx qrencode
-mkdir -p "$INSTALL_DIR" "$CONFIG_DIR" /var/lib/scout-easy
-chmod 700 /var/lib/scout-easy
+apt-get install -y python3 python3-venv python3-pip rsync curl nginx qrencode fail2ban
+mkdir -p "$INSTALL_DIR" "$CONFIG_DIR" /var/lib/scout-easy /var/log/scout-easy
+chmod 700 /var/lib/scout-easy /var/log/scout-easy
+touch /var/log/scout-easy/auth.log
+chmod 600 /var/log/scout-easy/auth.log
 systemctl stop "$SERVICE" 2>/dev/null || true
 rsync -a --delete --exclude .git --exclude .venv --exclude __pycache__ --exclude .pytest_cache "$SOURCE_DIR/" "$INSTALL_DIR/"
+if command -v fail2ban-client >/dev/null 2>&1; then
+  install -D -m 0644 "$SOURCE_DIR/fail2ban/filter.d/scout-easy-login.conf" /etc/fail2ban/filter.d/scout-easy-login.conf
+  install -D -m 0644 "$SOURCE_DIR/fail2ban/jail.d/scout-easy-login.local" /etc/fail2ban/jail.d/scout-easy-login.local
+  if fail2ban-client -t; then
+    systemctl restart fail2ban || true
+  else
+    echo "Предупреждение: конфигурация Fail2Ban не прошла проверку; служба не перезапущена." >&2
+  fi
+fi
 [[ -x "$INSTALL_DIR/.venv/bin/python3" ]] || python3 -m venv "$INSTALL_DIR/.venv"
 "$INSTALL_DIR/.venv/bin/pip" install --upgrade pip
 "$INSTALL_DIR/.venv/bin/pip" install -r "$INSTALL_DIR/requirements.txt"

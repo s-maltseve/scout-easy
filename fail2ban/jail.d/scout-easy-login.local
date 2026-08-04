@@ -1,0 +1,9 @@
+[scout-easy-login]
+enabled = true
+filter = scout-easy-login
+logpath = /var/log/scout-easy/auth.log
+backend = auto
+port = http,https
+maxretry = 3
+findtime = 10m
+bantime = 6h

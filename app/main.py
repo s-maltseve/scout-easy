@@ -58,6 +58,19 @@ PROFILE_DIR = Path(os.getenv("SCOUT_PROFILE_DIR", "/var/lib/scout-easy"))
 PROFILE_FILE = PROFILE_DIR / "profile.json"
 AVATAR_FILE = PROFILE_DIR / "avatar.png"
 ENV_FILE = Path("/etc/scout-easy/scout-easy.env")
+AUTH_LOG = Path(os.getenv("SCOUT_AUTH_LOG", "/var/log/scout-easy/auth.log"))
+
+
+def _write_auth_failure(username: str, ip: str) -> None:
+    try:
+        AUTH_LOG.parent.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now(timezone.utc).isoformat()
+        safe_user = re.sub(r"[^A-Za-z0-9_.@-]", "_", username)[:128]
+        safe_ip = re.sub(r"[^0-9A-Fa-f:.]", "", ip)[:45]
+        with AUTH_LOG.open("a", encoding="utf-8") as handle:
+            handle.write(f"{timestamp} scout-easy auth: Failed login for user {safe_user} from {safe_ip}\n")
+    except Exception:
+        logger.exception("auth_failure_log_write_failed")
 
 
 def _load_profile() -> dict[str, Any]:
@@ -199,6 +212,7 @@ def login(payload: LoginRequest, request: Request) -> Response:
         detail = f"IP заблокирован. Повторите через {max(1, remaining // 3600)} ч." if remaining else "Слишком много попыток входа"
         raise HTTPException(status_code=429, detail=detail)
     if not verify_credentials(payload.username, payload.password, payload.totp):
+        _write_auth_failure(payload.username, ip)
         blocked = record_failure(ip)
         audit(payload.username, ip, "auth.login", result="blocked" if blocked else "failure", details={"blocked_seconds": settings.login_block_seconds if blocked else 0})
         raise HTTPException(status_code=401, detail="Неверные данные входа или код 2FA")
