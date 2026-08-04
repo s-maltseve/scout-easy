@@ -14,7 +14,7 @@
   <img alt="Python" src="https://img.shields.io/badge/Python-3.10%2B-blue">
   <img alt="Linux" src="https://img.shields.io/badge/Linux-Debian%20%7C%20Ubuntu-green">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-lightgrey">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.8.1-orange">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.8.2-orange">
 </p>
 
 ![SCOUT-EASY dashboard](docs/images/dashboard.png)
@@ -38,6 +38,8 @@ SCOUT-EASY объединяет в одном интерфейсе сведен�
 Проект рассчитан на VPS, домашние серверы, небольшую инфраструктуру и администраторов, которым не нужна тяжёлая SIEM-система.
 
 ## Возможности
+
+> В 0.8.2 обновлён интерфейс Fail2Ban: живой статус службы, статистика по jail, явные индикаторы активности и подробная карта событий безопасности.
 
 | Раздел | Возможности |
 |---|---|
@@ -182,7 +184,7 @@ systemctl list-dependencies --reverse postfix.service
 - Prometheus;
 - syslog/SIEM.
 
-В 0.8.1 интерфейс и безопасное хранение конфигурации подготовлены. Фактическая доставка событий по каналам будет расширяться в следующих релизах.
+В 0.8.2 интерфейс и безопасное хранение конфигурации подготовлены. Фактическая доставка событий по каналам будет расширяться в следующих релизах.
 
 ## Данные и история
 
