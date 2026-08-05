@@ -1,6 +1,6 @@
 [project]
 name = "scout-easy"
-version = "0.8.7"
+version = "0.8.8"
 description = "Lightweight Linux security monitoring and administration dashboard"
 readme = "README.md"
 requires-python = ">=3.11"

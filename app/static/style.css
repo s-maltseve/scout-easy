@@ -103,3 +103,29 @@ body{font-size:15px}.brand{text-decoration:none;color:var(--text);border-radius:
 .rules-test-button{border-color:#b65d1b!important;background:linear-gradient(180deg,#b85c19,#80400f)!important;color:#fff2e5!important;font-weight:800;box-shadow:0 0 20px rgba(255,133,42,.16)}
 .rules-test-button:hover{filter:brightness(1.12)}
 @media(max-width:760px){.rules-panel-title{align-items:stretch;flex-direction:column}.rules-test-button{width:100%}}
+
+
+/* SCOUT-EASY 0.8.8 — calm blue Fail2Ban redesign */
+.f2b-shield{position:relative!important;color:#bcd5ff!important;background:color-mix(in srgb,var(--blue) 14%,var(--panel2))!important;border-color:color-mix(in srgb,var(--blue) 35%,var(--line))!important;font-size:0!important}
+.f2b-shield::before{content:"♢";font-size:21px;font-weight:900;color:#cfe0ff;transform:rotate(45deg)}
+.title-icon.f2b-shield::before{font-size:23px}
+.rules-card{border-color:var(--line)!important;background:var(--panel)!important;box-shadow:none!important}
+.summary-icon.rules{background:color-mix(in srgb,var(--blue) 18%,var(--panel2));color:#b9d3ff}
+.rules-test-button,.primary-action{border-color:#3977cf!important;background:linear-gradient(180deg,#4f8ff0,#2f69bd)!important;color:#fff!important;font-weight:750;box-shadow:0 7px 20px rgba(47,105,189,.18)}
+.rules-test-button:hover,.primary-action:hover{filter:brightness(1.08);transform:translateY(-1px)}
+.f2b-health{background:linear-gradient(180deg,color-mix(in srgb,var(--blue) 3%,var(--panel)),var(--panel))}
+.rules-panel-title{align-items:center}
+.rules-panel-title h3{font-size:20px}.rules-panel-title p{margin:5px 0 0;color:var(--muted)}
+.health-row{background:color-mix(in srgb,var(--panel2) 84%,transparent)}
+.jail-card{margin:14px;border:1px solid var(--line)!important;border-radius:15px;background:linear-gradient(180deg,color-mix(in srgb,var(--blue) 3%,var(--panel)),var(--panel))!important;overflow:hidden}
+.jail-card+.jail-card{margin-top:14px}
+.jail-card .jail-head{padding-bottom:14px;border-bottom:1px solid var(--line)}
+.jail-card .jail-config{margin-top:16px}
+.jail-card .jail-config>span{background:color-mix(in srgb,var(--panel2) 90%,transparent)}
+.test-jail{border-color:#315f9c!important;color:#d4e4ff!important;background:color-mix(in srgb,var(--blue) 10%,var(--panel2))!important;font-weight:700}
+.test-jail:hover{background:color-mix(in srgb,var(--blue) 18%,var(--panel2))!important}
+.jail-count{background:#17483d;color:#8ceac5}
+.f2b-panel>.inline-form{border-top:0;border-bottom:1px solid var(--line);margin-top:10px}
+.f2b-summary article{min-height:112px;box-shadow:0 8px 24px rgba(0,0,0,.08)}
+.f2b-summary article:hover{border-color:color-mix(in srgb,var(--blue) 25%,var(--line))}
+@media(min-width:1100px){#fail2ban{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0 0;padding:0 0 14px}.jail-card{min-width:0}.jail-card .jail-head{align-items:flex-start}.jail-card .jail-head-actions{flex-direction:column;align-items:flex-end}.jail-card .jail-config{grid-template-columns:1fr 1fr}.jail-card .jail-bans{min-height:34px}}

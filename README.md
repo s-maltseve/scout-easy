@@ -14,7 +14,7 @@
   <img alt="Python" src="https://img.shields.io/badge/Python-3.10%2B-blue">
   <img alt="Linux" src="https://img.shields.io/badge/Linux-Debian%20%7C%20Ubuntu-green">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-lightgrey">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.8.7-orange">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.8.8-orange">
 </p>
 
 ![SCOUT-EASY dashboard](docs/images/dashboard.png)
@@ -39,7 +39,7 @@ SCOUT-EASY объединяет в одном интерфейсе сведен�
 
 ## Возможности
 
-> В 0.8.7 исправлено погашение тревог, добавлена маска 2FA `000-000` и расширенные фильтры для сети и systemd-сервисов.
+> В 0.8.8 исправлено погашение тревог, добавлена маска 2FA `000-000` и расширенные фильтры для сети и systemd-сервисов.
 
 > В 0.8.2 обновлён интерфейс Fail2Ban: живой статус службы, статистика по jail, явные индикаторы активности и подробная карта событий безопасности.
 
@@ -247,7 +247,7 @@ MIT. Смотрите [LICENSE](LICENSE).
 
 Ошибки и предложения оформляйте через GitHub Issues. Не публикуйте в issue реальные пароли, TOTP-секреты, приватные ключи, домены внутренней инфраструктуры и полные журналы с персональными данными.
 
-## Изменения 0.8.7
+## Изменения 0.8.8
 
 - расширенная диагностика Fail2Ban: служба, управляющий сокет и состояние каждого jail;
 - параметры jail: `maxretry`, `findtime`, `bantime`;
